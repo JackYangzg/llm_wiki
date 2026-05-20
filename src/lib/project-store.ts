@@ -1,6 +1,6 @@
 import { load } from "@tauri-apps/plugin-store"
 import type { WikiProject } from "@/types/wiki"
-import type { ApiConfig, LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, ProviderConfigs, ProxyConfig, ScheduledImportConfig, SourceWatchConfig } from "@/stores/wiki-store"
+import type { ApiConfig, LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, ProviderConfigs, ProxyConfig, ScheduledImportConfig, SourceWatchConfig, WechatImportConfig } from "@/stores/wiki-store"
 import { normalizeSourceWatchConfig } from "@/lib/source-watch-config"
 import { normalizePath } from "@/lib/path-utils"
 
@@ -283,6 +283,20 @@ export async function loadSourceWatchConfig(projectId?: string): Promise<SourceW
 
   const legacyEnabled = await loadProjectFileSyncEnabled(projectId)
   return normalizeSourceWatchConfig({ enabled: legacyEnabled })
+}
+
+// ── Wechat import config ──────────────────────────────────────────────────
+
+const WEIXIN_IMPORT_KEY = "wechatImportConfig"
+
+export async function saveWechatImportConfig(config: WechatImportConfig): Promise<void> {
+  const store = await getStore()
+  await store.set(WEIXIN_IMPORT_KEY, config)
+}
+
+export async function loadWechatImportConfig(): Promise<WechatImportConfig | null> {
+  const store = await getStore()
+  return (await store.get<WechatImportConfig>(WEIXIN_IMPORT_KEY)) ?? null
 }
 
 // ── Update-check persistence ──────────────────────────────────────────────

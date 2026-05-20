@@ -49,6 +49,12 @@ export const INGESTABLE_SOURCE_EXTENSIONS = new Set([
   "xml",
   "yaml",
   "yml",
+  "jpg",
+  "jpeg",
+  "png",
+  "gif",
+  "webp",
+  "bmp",
 ])
 
 export interface DeleteSourceResult {
@@ -95,7 +101,6 @@ export async function enqueueSourceIngest(
   llmConfig: LlmConfig,
   options: { sourceRoot?: string; rootContext?: string } = {},
 ): Promise<string[]> {
-  if (!hasUsableLlm(llmConfig)) return []
   const files = sourcePaths
     .filter(isIngestableSourcePath)
     .map((sourcePath) => ({
@@ -106,8 +111,19 @@ export async function enqueueSourceIngest(
       ),
     }))
   if (files.length === 0) return []
+
+  // Standalone image files don't need the text LLM — they use the vision
+  // model for captioning (optional). Only gate text-document files.
+  const allImages = files.every((f) => {
+    const ext = f.sourcePath.split(".").pop()?.toLowerCase() ?? ""
+    return IMAGE_EXTS.has(ext)
+  })
+  if (!allImages && !hasUsableLlm(llmConfig)) return []
+
   return enqueueBatch(project.id, files)
 }
+
+const IMAGE_EXTS = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp"])
 
 export async function importSourceFiles(
   project: WikiProject,

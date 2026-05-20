@@ -42,6 +42,7 @@ pub fn all_projects() -> Vec<(String, String)> {
 
 pub fn start_clip_server() {
     thread::spawn(|| {
+        #[allow(unused_assignments)]
         let mut restart_count: u32 = 0;
 
         loop {

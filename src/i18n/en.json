@@ -13,7 +13,8 @@
     "settings": "Settings",
     "switchProject": "Switch Project",
     "updateAvailable": "Update available",
-    "updateAvailableSuffix": " · update"
+    "updateAvailableSuffix": " · update",
+    "wechat": "WeChat"
   },
   "updateBanner": {
     "message": "Version {{version}} is available",
@@ -189,6 +190,9 @@
       "interface": "Interface",
       "maintenance": "Maintenance",
       "changelog": "Changelog",
+      "wechat": "WeChat",
+      "wechatDisconnected": "Disconnected",
+      "wechatRelogin": "Re-login",
       "about": "About"
     },
     "sections": {
@@ -274,6 +278,9 @@
         "customEndpointHint": "OpenAI-compatible /v1 base. LM Studio, llama.cpp server, vLLM, LocalAI all work.",
         "apiKey": "API key",
         "apiKeyPlaceholder": "Leave blank for local / no-auth endpoints",
+        "region": "Region",
+        "regionHint": "CN uses the MCP guide host api.minimaxi.com. Global uses api.minimax.io.",
+        "minimaxHint": "Uses the MiniMax Token Plan MCP image understanding endpoint (`/v1/coding_plan/vlm`). No model name is required.",
         "model": "Model",
         "modelHint": "Must be a vision-capable model. Text-only models will fail with a 400 / image-not-supported error at first ingest.",
         "concurrency": "Concurrent caption requests",
@@ -300,7 +307,9 @@
         "searxngCategoriesHint": "Categories are sent as the SearXNG `categories` parameter.",
         "searchEngine": "Search engine / category",
         "customSerpApiPlaceholder": "Custom SerpApi engine, e.g. google_finance",
-        "customSerpApiHint": "Custom engine will be sent as the SerpApi `engine` parameter."
+        "customSerpApiHint": "Custom engine will be sent as the SerpApi `engine` parameter.",
+        "region": "Region",
+        "regionHint": "CN uses the MCP guide host api.minimaxi.com. Global uses api.minimax.io."
       },
       "network": {
         "title": "Network",
@@ -549,5 +558,20 @@
     "minutesAgo": "{{count}} min ago",
     "hoursAgo": "{{count}} h ago",
     "daysAgo": "{{count}} d ago"
+  },
+  "wechat": {
+    "panelTitle": "File Transfer",
+    "sendMessage": "Send",
+    "typeMessage": "Type a message...",
+    "noMessages": "No messages",
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "relogin": "Re-login",
+    "scanPrompt": "Scan QR code with WeChat to login",
+    "scanConfirm": "Scanned, confirm on phone",
+    "startingService": "Starting service...",
+    "loggedIn": "Logged in",
+    "loginFailed": "Login failed",
+    "noProject": "Please open a project first"
   }
 }

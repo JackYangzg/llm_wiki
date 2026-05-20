@@ -8,6 +8,7 @@ import { SidebarPanel } from "./sidebar-panel"
 import { ContentArea } from "./content-area"
 import { PreviewPanel } from "./preview-panel"
 import { ResearchPanel } from "./research-panel"
+import { WechatPanel } from "@/components/wechat/wechat-panel"
 import { ActivityPanel } from "./activity-panel"
 import { useResearchStore } from "@/stores/research-store"
 import { ErrorBoundary } from "@/components/error-boundary"
@@ -21,12 +22,16 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
   const selectedFile = useWikiStore((s) => s.selectedFile)
   const activeView = useWikiStore((s) => s.activeView)
   const researchPanelOpen = useResearchStore((s) => s.panelOpen)
+  const wechatPanelOpen = useWikiStore((s) => s.wechatPanelOpen)
+  const setWechatPanelOpen = useWikiStore((s) => s.setWechatPanelOpen)
   const setFileTree = useWikiStore((s) => s.setFileTree)
   const [leftWidth, setLeftWidth] = useState(220)
   const [rightWidth, setRightWidth] = useState(400)
   const isDraggingLeft = useRef(false)
   const isDraggingRight = useRef(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const isSettings = activeView === "settings"
+  const hasRightPanel = !isSettings && !!(selectedFile || researchPanelOpen || wechatPanelOpen)
 
   const loadFileTree = useCallback(async () => {
     if (!project) return
@@ -41,6 +46,10 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
   useEffect(() => {
     loadFileTree()
   }, [loadFileTree])
+
+  const hideWechatPanel = useCallback(() => {
+    if (wechatPanelOpen) setWechatPanelOpen(false)
+  }, [setWechatPanelOpen, wechatPanelOpen])
 
   const startDrag = useCallback(
     (side: "left" | "right") => (e: React.MouseEvent) => {
@@ -83,13 +92,6 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
     []
   )
 
-  // Settings is a full-width admin view — the file tree / activity panel
-  // are irrelevant there and their narrow column makes the settings form
-  // cramped. Hide both the left sidebar (and the file preview on the
-  // right) so the settings screen uses the whole content area.
-  const isSettings = activeView === "settings"
-  const hasRightPanel = !isSettings && !!(selectedFile || researchPanelOpen)
-
   return (
     // Outer column layout: full-width update banner on top (when an
     // update is available AND not dismissed for this version), the
@@ -107,6 +109,7 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
             <div
               className="flex shrink-0 flex-col overflow-hidden border-r"
               style={{ width: leftWidth }}
+              onMouseDown={hideWechatPanel}
             >
               <div className="flex-1 overflow-hidden">
                 <SidebarPanel />
@@ -121,7 +124,10 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
         )}
 
         {/* Center: Chat or view (sources/settings/review) */}
-        <div className="min-w-0 flex-1 overflow-hidden">
+        <div
+          className="min-w-0 flex-1 overflow-hidden"
+          onMouseDown={hideWechatPanel}
+        >
           <ErrorBoundary>
             <ContentArea />
           </ErrorBoundary>
@@ -139,17 +145,28 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
               style={{ width: rightWidth }}
             >
               <ErrorBoundary>
-                {/* File preview on top (if file selected) */}
-                {selectedFile && (
-                  <div className={researchPanelOpen ? "flex-1 overflow-hidden border-b" : "flex-1 overflow-hidden"}>
-                    <PreviewPanel />
-                  </div>
-                )}
-                {/* Research panel on bottom (if open) */}
-                {researchPanelOpen && (
-                  <div className={selectedFile ? "h-1/2 shrink-0 overflow-hidden" : "flex-1 overflow-hidden"}>
-                    <ResearchPanel />
-                  </div>
+                {/* WeChat panel — always mounted, hidden when not open to preserve scroll position */}
+                <div
+                  className="flex-1 overflow-hidden"
+                  style={{ display: wechatPanelOpen ? undefined : "none" }}
+                >
+                  <WechatPanel />
+                </div>
+                {!wechatPanelOpen && (
+                  <>
+                    {/* File preview on top (if file selected) */}
+                    {selectedFile && (
+                      <div className={researchPanelOpen ? "flex-1 overflow-hidden border-b" : "flex-1 overflow-hidden"}>
+                        <PreviewPanel />
+                      </div>
+                    )}
+                    {/* Research panel on bottom (if open) */}
+                    {researchPanelOpen && (
+                      <div className={selectedFile ? "h-1/2 shrink-0 overflow-hidden" : "flex-1 overflow-hidden"}>
+                        <ResearchPanel />
+                      </div>
+                    )}
+                  </>
                 )}
               </ErrorBoundary>
             </div>

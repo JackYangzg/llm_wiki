@@ -39,6 +39,7 @@
  */
 import type { LlmConfig } from "@/stores/wiki-store"
 import { streamChat, type ChatMessage } from "./llm-client"
+import { getHttpFetch, isFetchNetworkError } from "@/lib/tauri-fetch"
 
 /**
  * The "no surrounding text" prompt — same factual / verbatim /
@@ -68,6 +69,9 @@ import { streamChat, type ChatMessage } from "./llm-client"
  */
 export const CAPTION_PROMPT =
   "Describe this image factually for a knowledge-base index. Include: any visible text verbatim, chart axes and values, diagram structure (boxes/arrows/labels), key visual elements. Do NOT speculate or editorialize. 2 to 4 sentences. Output plain text only — no markdown, no preamble."
+
+export const IMAGE_ANALYSIS_PROMPT =
+  "Analyze this image for a personal knowledge base. Describe what is visible, transcribe any important text verbatim, identify charts/tables/diagrams and their structure, and extract the useful facts someone should be able to search for later. Do NOT speculate beyond the image. Output concise Markdown with a short summary followed by key observations."
 
 /**
  * Build the prompt that gets used WHEN the caller supplies
@@ -171,6 +175,56 @@ export async function captionImage(
       ? buildCaptionPromptWithContext(before, after)
       : CAPTION_PROMPT
 
+  return runVisionPrompt(
+    imageBase64,
+    mediaType,
+    promptText,
+    llmConfig,
+    signal,
+    {
+      temperature: options?.temperature ?? 0,
+      maxTokens: options?.maxTokens ?? 4096,
+    },
+  )
+}
+
+export interface ImageAnalysisOptions {
+  maxTokens?: number
+  temperature?: number
+}
+
+export async function analyzeImage(
+  imageBase64: string,
+  mediaType: string,
+  llmConfig: LlmConfig,
+  signal?: AbortSignal,
+  options?: ImageAnalysisOptions,
+): Promise<string> {
+  return runVisionPrompt(
+    imageBase64,
+    mediaType,
+    IMAGE_ANALYSIS_PROMPT,
+    llmConfig,
+    signal,
+    {
+      temperature: options?.temperature ?? 0,
+      maxTokens: options?.maxTokens ?? 4096,
+    },
+  )
+}
+
+async function runVisionPrompt(
+  imageBase64: string,
+  mediaType: string,
+  promptText: string,
+  llmConfig: LlmConfig,
+  signal: AbortSignal | undefined,
+  options: { temperature: number; maxTokens: number },
+): Promise<string> {
+  if (llmConfig.provider === "minimax") {
+    return runMiniMaxVisionPrompt(imageBase64, mediaType, promptText, llmConfig, signal)
+  }
+
   const messages: ChatMessage[] = [
     {
       role: "user",
@@ -196,8 +250,8 @@ export async function captionImage(
     },
     signal,
     {
-      temperature: options?.temperature ?? 0,
-      max_tokens: options?.maxTokens ?? 4096,
+      temperature: options.temperature,
+      max_tokens: options.maxTokens,
     },
   )
 
@@ -210,5 +264,93 @@ export async function captionImage(
     throw streamError as Error
   }
 
-  return tokens.join("").trim()
+  const output = tokens.join("").trim()
+  if (looksLikeImageWasNotReceived(output)) {
+    throw new Error(
+      "Vision model did not receive the image. Use a multimodal model/endpoint that supports image input.",
+    )
+  }
+  return output
+}
+
+async function runMiniMaxVisionPrompt(
+  imageBase64: string,
+  mediaType: string,
+  promptText: string,
+  llmConfig: LlmConfig,
+  signal?: AbortSignal,
+): Promise<string> {
+  if (!llmConfig.apiKey.trim()) {
+    throw new Error("MiniMax image understanding is not configured. Add a MiniMax Token Plan API key in Settings.")
+  }
+
+  const httpFetch = await getHttpFetch()
+  const baseUrl = miniMaxTokenPlanBaseUrl(llmConfig.customEndpoint)
+  let response: Response
+  try {
+    response = await httpFetch(`${baseUrl}/v1/coding_plan/vlm`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${llmConfig.apiKey}`,
+      },
+      body: JSON.stringify({
+        prompt: promptText,
+        image_url: `data:${mediaType};base64,${imageBase64}`,
+      }),
+      signal,
+    })
+  } catch (err) {
+    if (isFetchNetworkError(err)) {
+      throw new Error("Network error reaching MiniMax image understanding API. Check connectivity and region.")
+    }
+    throw err
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "Unknown error")
+    throw new Error(`MiniMax image understanding failed (${response.status}): ${errorText}`)
+  }
+
+  const data = await response.json() as {
+    content?: string
+    base_resp?: { status_code?: number; status_msg?: string }
+  }
+  const baseResp = data.base_resp
+  if (baseResp && baseResp.status_code && baseResp.status_code !== 0) {
+    throw new Error(`MiniMax image understanding failed: ${baseResp.status_msg ?? `status ${baseResp.status_code}`}`)
+  }
+
+  const output = (data.content ?? "").trim()
+  if (!output) {
+    throw new Error("MiniMax image understanding failed: empty response")
+  }
+  if (looksLikeImageWasNotReceived(output)) {
+    throw new Error(
+      "Vision model did not receive the image. Use a multimodal model/endpoint that supports image input.",
+    )
+  }
+  return output
+}
+
+function miniMaxTokenPlanBaseUrl(endpoint: string | undefined): string {
+  const trimmed = endpoint?.trim()
+  if (!trimmed) return "https://api.minimaxi.com"
+  try {
+    const url = new URL(trimmed)
+    if (/minimax\.io$/i.test(url.hostname)) return "https://api.minimax.io"
+    if (/minimaxi\.com$/i.test(url.hostname)) return "https://api.minimaxi.com"
+    return url.origin
+  } catch {
+    return trimmed.replace(/\/+$/, "")
+  }
+}
+
+function looksLikeImageWasNotReceived(output: string): boolean {
+  const normalized = output.toLowerCase()
+  return (
+    /\bimage not provided\b/.test(normalized) ||
+    /\bno image (was )?(provided|uploaded|attached)\b/.test(normalized) ||
+    /\bplease upload (the|an) image\b/.test(normalized)
+  )
 }

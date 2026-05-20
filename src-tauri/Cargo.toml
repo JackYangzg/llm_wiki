@@ -30,6 +30,7 @@ tauri-plugin-store = "2.4.2"
 tauri-plugin-http = { version = "2", features = ["unsafe-headers"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tiny_http = "0.12"
+ureq = { version = "2", features = ["native-tls"] }
 zip = "2"
 calamine = "0.34.0"
 docx-rs = "0.4.20"
@@ -58,6 +59,10 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 base64 = "0.22"
 sha2 = "0.10"
 md-5 = "0.10"
+# Random UIN generation for WeChat filehelper device ID
+rand = "0.8"
+# QR code generation for WeChat iLink Bot login
+qrcode = "0.14"
 notify = "8"
 walkdir = "2"
 

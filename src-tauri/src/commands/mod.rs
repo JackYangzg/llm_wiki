@@ -6,3 +6,4 @@ pub mod fs;
 pub mod project;
 pub mod search;
 pub mod vectorstore;
+pub mod wechat_filehelper;

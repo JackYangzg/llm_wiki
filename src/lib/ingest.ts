@@ -1,4 +1,4 @@
-import { readFile, writeFile, listDirectory } from "@/commands/fs"
+import { readFile, writeFile, listDirectory, copyFile, createDirectory, readFileAsBase64 } from "@/commands/fs"
 import { streamChat } from "@/lib/llm-client"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -15,6 +15,7 @@ import {
   buildImageMarkdownSection,
 } from "@/lib/extract-source-images"
 import { captionMarkdownImages, loadCaptionCache } from "@/lib/image-caption-pipeline"
+import { analyzeImage } from "@/lib/vision-caption"
 import type { MultimodalConfig } from "@/stores/wiki-store"
 
 /**
@@ -54,6 +55,10 @@ import { sameScriptFamily } from "@/lib/language-metadata"
 // handles classes of LLM output this regex silently drops (see H1/H3/H5
 // in src/lib/ingest-parse.test.ts).
 export const FILE_BLOCK_REGEX = /---FILE:\s*([^\n]+?)\s*---\n([\s\S]*?)---END FILE---/g
+
+/** Extensions for standalone image files — handled via vision-model captioning
+ *  instead of the text-document LLM pipeline. */
+const IMAGE_EXTS = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp"])
 
 /** One FILE block extracted from an LLM's stage-2 output. */
 export interface ParsedFileBlock {
@@ -284,6 +289,123 @@ export function languageRule(sourceContent: string = ""): string {
  * "updated" index based on the same pre-state and overwrite each
  * other's additions.
  */
+/**
+ * Handle a standalone image file (JPEG, PNG, etc.): copy to wiki/media/,
+ * caption with the vision model if multimodal is enabled, and create a
+ * source-summary page. Skips the full text-document LLM pipeline.
+ */
+async function handleImageIngest(
+  projectPath: string,
+  sourcePath: string,
+  fileName: string,
+  llmConfig: LlmConfig,
+  activityId: string,
+  signal?: AbortSignal,
+): Promise<string[]> {
+  const pp = normalizePath(projectPath)
+  const sp = normalizePath(sourcePath)
+  const activity = useActivityStore.getState()
+  const sourceBaseName = fileName.replace(/\.[^.]+$/, "")
+  const mediaRelDir = "media/wechat"
+  const mediaFullDir = `${pp}/wiki/${mediaRelDir}`
+
+  activity.updateItem(activityId, { detail: "Processing image..." })
+
+  await createDirectory(mediaFullDir).catch(() => {})
+
+  const destRelPath = `${mediaRelDir}/${fileName}`
+  const destFullPath = `${pp}/wiki/${destRelPath}`
+
+  try {
+    await copyFile(sp, destFullPath)
+  } catch (err) {
+    activity.updateItem(activityId, {
+      status: "error",
+      detail: `Failed to copy image: ${err instanceof Error ? err.message : err}`,
+    })
+    return []
+  }
+
+  // Analyze with vision model if multimodal is enabled.
+  let analysis = ""
+  let analysisError = ""
+  const mmCfg = useWikiStore.getState().multimodalConfig
+  const captionLlm = resolveCaptionConfig(mmCfg, llmConfig)
+
+  if (captionLlm) {
+    activity.updateItem(activityId, { detail: "Analyzing image..." })
+    try {
+      const imgData = await readFileAsBase64(sp)
+      analysis = await analyzeImage(imgData.base64, imgData.mimeType, captionLlm, signal)
+    } catch (err) {
+      analysisError = err instanceof Error ? err.message : String(err)
+      console.warn("[ingest:image] analysis failed:", err)
+    }
+  } else if (mmCfg.enabled) {
+    analysisError = "Multimodal analysis is enabled but no usable image model is configured."
+  } else {
+    analysisError = "Multimodal analysis is disabled."
+  }
+
+  // Build source-summary page
+  const date = new Date().toISOString().slice(0, 10)
+  const analysisSection = analysis
+    ? ["## Analysis", "", analysis]
+    : [
+        "## Analysis unavailable",
+        "",
+        analysisError ||
+          "The image was imported, but no analysis text was produced.",
+      ]
+  const pageContent = [
+    "---",
+    `type: source`,
+    `title: "Image: ${fileName}"`,
+    `created: ${date}`,
+    `updated: ${date}`,
+    `sources: ["${fileName}"]`,
+    `tags: [wechat-image]`,
+    `related: []`,
+    "---",
+    "",
+    `# Image: ${fileName}`,
+    "",
+    `![${fileName}](${destRelPath})`,
+    "",
+    ...analysisSection,
+  ].join("\n")
+
+  const sourceSummaryRelPath = `wiki/sources/${sourceBaseName}.md`
+  const sourceSummaryFullPath = `${pp}/${sourceSummaryRelPath}`
+  await writeFile(sourceSummaryFullPath, pageContent)
+
+  // Refresh file tree
+  try {
+    const tree = await listDirectory(pp)
+    useWikiStore.getState().setFileTree(tree)
+    useWikiStore.getState().bumpDataVersion()
+  } catch { /* non-critical */ }
+
+  // Embed if enabled
+  const embCfg = useWikiStore.getState().embeddingConfig
+  if (embCfg.enabled && embCfg.model) {
+    try {
+      const { embedPage } = await import("@/lib/embedding")
+      await embedPage(pp, sourceBaseName, `Image: ${fileName}`, pageContent, embCfg)
+    } catch { /* non-critical */ }
+  }
+
+  activity.updateItem(activityId, {
+    status: "done",
+    detail: analysis
+      ? "Image ingested with analysis"
+      : `Image ingested without analysis: ${analysisError || "no analysis text produced"}`,
+    filesWritten: [sourceSummaryRelPath],
+  })
+
+  return [sourceSummaryRelPath]
+}
+
 export async function autoIngest(
   projectPath: string,
   sourcePath: string,
@@ -323,6 +445,12 @@ async function autoIngestImpl(
     tryReadFile(`${pp}/wiki/index.md`),
     tryReadFile(`${pp}/wiki/overview.md`),
   ])
+
+  // ── Standalone image files: caption with vision model, skip text pipeline ──
+  const fileExt = fileName.split(".").pop()?.toLowerCase() ?? ""
+  if (IMAGE_EXTS.has(fileExt)) {
+    return handleImageIngest(pp, sp, fileName, llmConfig, activityId, signal)
+  }
 
   // ── Cache check: skip re-ingest if source content hasn't changed ──
   //

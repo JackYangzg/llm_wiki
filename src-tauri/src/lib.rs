@@ -93,6 +93,7 @@ pub fn run() {
             app.manage(commands::claude_cli::ClaudeCliState::default());
             app.manage(commands::codex_cli::CodexCliState::default());
             app.manage(commands::file_sync::FileSyncState::default());
+            app.manage(commands::wechat_filehelper::WechatFilehelperState::default());
             api_server::start_api_server(app.handle().clone());
             Ok(())
         })
@@ -100,6 +101,8 @@ pub fn run() {
             commands::fs::read_file,
             commands::fs::write_file,
             commands::fs::write_file_atomic,
+            commands::fs::write_binary_file,
+            commands::fs::write_binary_file,
             commands::fs::list_directory,
             commands::fs::copy_file,
             commands::fs::copy_directory,
@@ -144,6 +147,17 @@ pub fn run() {
             commands::file_sync::rescan_project_files,
             commands::file_sync::get_file_change_queue,
             commands::file_sync::retry_file_change_task,
+            commands::file_sync::ignore_file_change_task,
+            commands::wechat_filehelper::wechat_get_login_qr,
+            commands::wechat_filehelper::wechat_check_login,
+            commands::wechat_filehelper::wechat_get_user_info,
+            commands::wechat_filehelper::wechat_sync_messages,
+            commands::wechat_filehelper::wechat_download_attachment,
+            commands::wechat_filehelper::wechat_resolve_file_transfer,
+            commands::wechat_filehelper::wechat_filehelper_disconnect,
+            commands::wechat_filehelper::wechat_send_message,
+            commands::wechat_filehelper::fetch_url_content,
+            commands::wechat_filehelper::wechat_try_restore_session,
             commands::file_sync::ignore_file_change_task,
             set_proxy_env,
         ])

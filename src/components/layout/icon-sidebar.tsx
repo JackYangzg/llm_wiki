@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import {
-  FileText, FolderOpen, Search, Network, ClipboardCheck, Settings, ArrowLeftRight, ClipboardList, Globe,
+  FileText, FolderOpen, Search, Network, ClipboardCheck, Settings, ArrowLeftRight, ClipboardList, Globe, MessageCircle,
 } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -34,6 +34,10 @@ export function IconSidebar({ onSwitchProject }: IconSidebarProps) {
   const researchPanelOpen = useResearchStore((s) => s.panelOpen)
   const researchActiveCount = useResearchStore((s) => s.tasks.filter((t) => t.status !== "done" && t.status !== "error").length)
   const toggleResearchPanel = useResearchStore((s) => s.setPanelOpen)
+  const wechatPanelOpen = useWikiStore((s) => s.wechatPanelOpen)
+  const setWechatPanelOpen = useWikiStore((s) => s.setWechatPanelOpen)
+  const wechatDisconnected = useWikiStore((s) => s.wechatDisconnected)
+  const wechatUnreadCount = useWikiStore((s) => s.wechatUnreadCount)
   // Use `hasAvailableUpdate` (ignores dismiss state) rather than
   // `shouldShowUpdateBanner`. The dot is a passive signpost — it
   // should keep marking the gear as long as the update exists, even
@@ -99,7 +103,11 @@ export function IconSidebar({ onSwitchProject }: IconSidebarProps) {
           {/* Deep Research — same row as other nav items */}
           <Tooltip>
             <TooltipTrigger
-              onClick={() => toggleResearchPanel(!researchPanelOpen)}
+              onClick={() => {
+                if (activeView === "settings") setActiveView("wiki")
+                setWechatPanelOpen(false)
+                toggleResearchPanel(!researchPanelOpen)
+              }}
               className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
                 researchPanelOpen
                   ? "bg-accent text-accent-foreground"
@@ -114,6 +122,31 @@ export function IconSidebar({ onSwitchProject }: IconSidebarProps) {
               )}
             </TooltipTrigger>
             <TooltipContent side="right">Deep Research</TooltipContent>
+          </Tooltip>
+          {/* WeChat File Transfer Helper */}
+          <Tooltip>
+            <TooltipTrigger
+              onClick={() => {
+                if (activeView === "settings") setActiveView("wiki")
+                setWechatPanelOpen(!wechatPanelOpen)
+              }}
+              className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
+                wechatPanelOpen
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
+              }`}
+            >
+              <MessageCircle className="h-5 w-5" />
+              {wechatUnreadCount > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                  {wechatUnreadCount > 99 ? "99+" : wechatUnreadCount}
+                </span>
+              )}
+              {wechatDisconnected && wechatUnreadCount === 0 && (
+                <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-500 ring-2 ring-muted/50" />
+              )}
+            </TooltipTrigger>
+            <TooltipContent side="right">{t("nav.wechat")}</TooltipContent>
           </Tooltip>
         </div>
         {/* Bottom: daemon status + settings + switch project */}

@@ -274,6 +274,9 @@
         "customEndpointHint": "OpenAI 兼容的 /v1 根地址。LM Studio、llama.cpp server、vLLM、LocalAI 都可以。",
         "apiKey": "API Key",
         "apiKeyPlaceholder": "本地 / 无鉴权端点留空",
+        "region": "区域",
+        "regionHint": "CN 使用 MCP 文档里的 api.minimaxi.com；Global 使用 api.minimax.io。",
+        "minimaxHint": "使用 MiniMax Token Plan MCP 图片理解端点（`/v1/coding_plan/vlm`），无需填写模型名。",
         "model": "模型",
         "modelHint": "必须是支持视觉输入的模型。文本-only 模型会在首次 ingest 时报 400 / image-not-supported。",
         "concurrency": "并发 caption 请求数",
@@ -300,7 +303,9 @@
         "searxngCategoriesHint": "分类会作为 SearXNG 的 `categories` 参数发送。",
         "searchEngine": "搜索引擎 / 分类",
         "customSerpApiPlaceholder": "自定义 SerpApi engine，例如 google_finance",
-        "customSerpApiHint": "自定义 engine 会作为 SerpApi 的 `engine` 参数发送。"
+        "customSerpApiHint": "自定义 engine 会作为 SerpApi 的 `engine` 参数发送。",
+        "region": "区域",
+        "regionHint": "CN 使用 MCP 文档里的 api.minimaxi.com；Global 使用 api.minimax.io。"
       },
       "network": {
         "title": "网络",

@@ -19,7 +19,7 @@ vi.mock("./llm-client", async () => {
   }
 })
 
-import { captionImage, CAPTION_PROMPT } from "./vision-caption"
+import { analyzeImage, captionImage, CAPTION_PROMPT, IMAGE_ANALYSIS_PROMPT } from "./vision-caption"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { ChatMessage } from "./llm-providers"
 
@@ -34,9 +34,20 @@ const cfg: LlmConfig = {
 }
 
 const TINY_B64 = "iVBORw0KGgo="
+const fetchMock = vi.fn<typeof fetch>()
+
+function jsonResponse(body: unknown, init?: ResponseInit): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+    ...init,
+  })
+}
 
 beforeEach(() => {
   mockStreamChat.mockReset()
+  fetchMock.mockReset()
+  vi.stubGlobal("fetch", fetchMock)
 })
 
 describe("captionImage", () => {
@@ -136,6 +147,74 @@ describe("captionImage", () => {
     expect(CAPTION_PROMPT).toMatch(/visible text verbatim/)
     expect(CAPTION_PROMPT).toMatch(/Do NOT speculate/)
     expect(CAPTION_PROMPT).toMatch(/no markdown/)
+  })
+
+  it("analyzeImage sends the richer knowledge-base analysis prompt", async () => {
+    mockStreamChat.mockImplementation(async (_c, _m, cb) => {
+      cb.onToken("## Summary\nA diagram")
+      cb.onDone()
+    })
+
+    const out = await analyzeImage(TINY_B64, "image/png", cfg)
+    expect(out).toBe("## Summary\nA diagram")
+
+    const messages = mockStreamChat.mock.calls[0][1] as ChatMessage[]
+    expect(messages[0].content).toEqual([
+      { type: "text", text: IMAGE_ANALYSIS_PROMPT },
+      { type: "image", mediaType: "image/png", dataBase64: TINY_B64 },
+    ])
+  })
+
+  it("rejects placeholder responses where the endpoint ignored the image", async () => {
+    mockStreamChat.mockImplementation(async (_c, _m, cb) => {
+      cb.onToken("Image not provided. Please upload the image.")
+      cb.onDone()
+    })
+
+    await expect(analyzeImage(TINY_B64, "image/png", cfg)).rejects.toThrow(
+      /did not receive the image/,
+    )
+  })
+
+  it("uses MiniMax Token Plan image understanding directly", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      content: "A small black and blue grid logo.",
+      base_resp: { status_code: 0, status_msg: "success" },
+    }))
+
+    const out = await captionImage(TINY_B64, "image/png", {
+      ...cfg,
+      provider: "minimax",
+      apiKey: "mini-key",
+      customEndpoint: "https://api.minimaxi.com",
+    })
+
+    expect(out).toBe("A small black and blue grid logo.")
+    expect(mockStreamChat).not.toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledWith("https://api.minimaxi.com/v1/coding_plan/vlm", expect.objectContaining({
+      method: "POST",
+      headers: expect.objectContaining({ Authorization: "Bearer mini-key" }),
+      body: JSON.stringify({
+        prompt: CAPTION_PROMPT,
+        image_url: `data:image/png;base64,${TINY_B64}`,
+      }),
+    }))
+  })
+
+  it("surfaces MiniMax image understanding base_resp errors", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      content: "",
+      base_resp: { status_code: 1026, status_msg: "input image sensitive" },
+    }))
+
+    await expect(captionImage(TINY_B64, "image/png", {
+      ...cfg,
+      provider: "minimax",
+      apiKey: "mini-key",
+      customEndpoint: "https://api.minimaxi.com/anthropic",
+    })).rejects.toThrow("MiniMax image understanding failed: input image sensitive")
+
+    expect(fetchMock.mock.calls[0][0]).toBe("https://api.minimaxi.com/v1/coding_plan/vlm")
   })
 
   it("uses the no-context prompt when context is empty / whitespace-only", async () => {

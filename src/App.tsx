@@ -9,6 +9,7 @@ import { getLastProject, getRecentProjects, saveLastProject, loadLlmConfig, load
 import { loadReviewItems, loadChatHistory } from "@/lib/persist"
 import { setupAutoSave } from "@/lib/auto-save"
 import { startClipWatcher } from "@/lib/clip-watcher"
+import { loadWechatImportConfig } from "@/lib/project-store"
 import { AppLayout } from "@/components/layout/app-layout"
 import { WelcomeScreen } from "@/components/project/welcome-screen"
 import { CreateProjectDialog } from "@/components/project/create-project-dialog"
@@ -329,6 +330,23 @@ function App() {
       )
     }
 
+    // Load and start WeChat import if enabled
+    try {
+      const savedWechat = await loadWechatImportConfig()
+      if (savedWechat) {
+        useWikiStore.getState().setWechatImportConfig(savedWechat)
+        if (savedWechat.enabled) {
+          import("@/lib/wechat-import").then(({ startImport }) => {
+            startImport(savedWechat).catch((err) =>
+              console.error("Failed to start wechat import:", err)
+            )
+          }).catch(() => {})
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     // Start project source watch if enabled
     import("@/lib/project-file-sync").then(async ({ startProjectFileSync, stopProjectFileSync }) => {
       const config = await loadSourceWatchConfig(proj.id)
@@ -414,9 +432,12 @@ function App() {
   }
 
   async function handleSwitchProject() {
-    // Stop scheduled import before switching projects
+    // Stop scheduled import and wechat import before switching projects
     import("@/lib/scheduled-import").then(({ stopScheduledImport }) => {
       stopScheduledImport()
+    }).catch(() => {})
+    import("@/lib/wechat-import").then(({ stopImport }) => {
+      stopImport()
     }).catch(() => {})
 
     // Save current project's scheduled import config before clearing

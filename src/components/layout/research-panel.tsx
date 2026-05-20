@@ -14,7 +14,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { readFile } from "@/commands/fs"
 import { queueResearch } from "@/lib/deep-research"
 import { normalizePath } from "@/lib/path-utils"
-import { hasConfiguredSearchProvider } from "@/lib/web-search"
+import { hasUsableSearchConfig } from "@/lib/web-search"
 import { isImeComposing } from "@/lib/keyboard-utils"
 import { detectLanguage } from "@/lib/detect-language"
 import { getHtmlLang, getTextDirection } from "@/lib/language-metadata"
@@ -36,7 +36,7 @@ export function ResearchPanel() {
   function handleStartResearch() {
     const topic = inputValue.trim()
     if (!topic || !project) return
-    if (!hasConfiguredSearchProvider(searchApiConfig)) {
+    if (!hasUsableSearchConfig(searchApiConfig)) {
       window.alert("Web Search not configured. Go to Settings → Web Search to configure a provider.")
       return
     }

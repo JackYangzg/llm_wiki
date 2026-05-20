@@ -1,6 +1,8 @@
 import { create } from "zustand"
 import type { WikiProject, FileNode } from "@/types/wiki"
 import { DEFAULT_SOURCE_WATCH_CONFIG } from "@/lib/source-watch-config"
+import { DEFAULT_IMPORT_CONFIG, type WechatImportConfig } from "@/lib/wechat-import"
+import type { WechatMessage } from "@/lib/wechat-login"
 
 /**
  * Wire protocol used when `provider === "custom"`. Other providers have a
@@ -27,7 +29,7 @@ interface LlmConfig {
   reasoning?: ReasoningConfig
 }
 
-export type SearchProvider = "tavily" | "serpapi" | "searxng" | "none"
+export type SearchProvider = "tavily" | "serpapi" | "searxng" | "minimax" | "none"
 export type SerpApiEngine =
   | "google"
   | "google_news"
@@ -57,6 +59,7 @@ export interface SearchProviderOverride {
   serpApiEngine?: SerpApiEngine
   searXngUrl?: string
   searXngCategories?: SearXngCategory[]
+  minimaxRegion?: string
 }
 
 export type SearchProviderConfigs = Partial<Record<Exclude<SearchProvider, "none">, SearchProviderOverride>>
@@ -67,6 +70,7 @@ interface SearchApiConfig {
   serpApiEngine?: SerpApiEngine
   searXngUrl?: string
   searXngCategories?: SearXngCategory[]
+  minimaxRegion?: string
   providerConfigs?: SearchProviderConfigs
 }
 
@@ -268,6 +272,11 @@ interface WikiState {
   scheduledImportConfig: ScheduledImportConfig
   sourceWatchConfig: SourceWatchConfig
   apiConfig: ApiConfig
+  wechatImportConfig: WechatImportConfig
+  wechatDisconnected: boolean
+  wechatPanelOpen: boolean
+  wechatUnreadCount: number
+  wechatMessages: WechatMessage[]
   dataVersion: number
 
   setProject: (project: WikiProject | null) => void
@@ -288,6 +297,14 @@ interface WikiState {
   setScheduledImportConfig: (config: ScheduledImportConfig) => void
   setSourceWatchConfig: (config: SourceWatchConfig) => void
   setApiConfig: (config: ApiConfig) => void
+  setWechatImportConfig: (config: WechatImportConfig) => void
+  setWechatDisconnected: (disconnected: boolean) => void
+  setWechatPanelOpen: (open: boolean) => void
+  setWechatUnreadCount: (delta: number) => void
+  resetWechatUnread: () => void
+  addWechatMessages: (msgs: WechatMessage[]) => void
+  updateWechatMessage: (msgId: string, patch: Partial<WechatMessage>) => void
+  clearWechatMessages: () => void
   bumpDataVersion: () => void
 }
 
@@ -381,6 +398,12 @@ export const useWikiStore = create<WikiState>((set) => ({
     token: "",
   },
 
+  wechatImportConfig: DEFAULT_IMPORT_CONFIG,
+  wechatDisconnected: false,
+  wechatPanelOpen: false,
+  wechatUnreadCount: 0,
+  wechatMessages: [],
+
   setLlmConfig: (llmConfig) => set({ llmConfig }),
   setProviderConfigs: (providerConfigs) => set({ providerConfigs }),
   setActivePresetId: (activePresetId) => set({ activePresetId }),
@@ -392,7 +415,24 @@ export const useWikiStore = create<WikiState>((set) => ({
   setScheduledImportConfig: (scheduledImportConfig) => set({ scheduledImportConfig }),
   setSourceWatchConfig: (sourceWatchConfig) => set({ sourceWatchConfig }),
   setApiConfig: (apiConfig) => set({ apiConfig }),
+  setWechatImportConfig: (wechatImportConfig) => set({ wechatImportConfig }),
+  setWechatDisconnected: (wechatDisconnected) => set({ wechatDisconnected }),
+  setWechatPanelOpen: (wechatPanelOpen) => set({ wechatPanelOpen }),
+  setWechatUnreadCount: (delta) => set((s) => ({ wechatUnreadCount: s.wechatUnreadCount + delta })),
+  resetWechatUnread: () => set({ wechatUnreadCount: 0 }),
+  addWechatMessages: (msgs) =>
+    set((s) => {
+      const seen = new Set(s.wechatMessages.map((m) => m.msgId))
+      const fresh = msgs.filter((m) => !seen.has(m.msgId))
+      if (fresh.length === 0) return {}
+      return { wechatMessages: [...s.wechatMessages, ...fresh].slice(-500) }
+    }),
+  updateWechatMessage: (msgId, patch) =>
+    set((s) => ({
+      wechatMessages: s.wechatMessages.map((m) => (m.msgId === msgId ? { ...m, ...patch } : m)),
+    })),
+  clearWechatMessages: () => set({ wechatMessages: [] }),
   bumpDataVersion: () => set((state) => ({ dataVersion: state.dataVersion + 1 })),
 }))
 
-export type { WikiState, LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, ProxyConfig, ScheduledImportConfig, SourceWatchConfig, ApiConfig }
+export type { WikiState, LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, ProxyConfig, ScheduledImportConfig, SourceWatchConfig, ApiConfig, WechatImportConfig }

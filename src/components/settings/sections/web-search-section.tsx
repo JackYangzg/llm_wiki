@@ -33,6 +33,13 @@ const SEARCH_PROVIDERS = [
     urlPlaceholder: "https://search.example.com",
     needsApiKey: false,
   },
+  {
+    id: "minimax",
+    label: "MiniMax",
+    hint: "MiniMax Token Plan web search",
+    keyPlaceholder: "Enter your MiniMax Token Plan API key",
+    needsApiKey: true,
+  },
 ] as const
 
 export function WebSearchSection() {
@@ -186,12 +193,59 @@ export function WebSearchSection() {
                       onChange={(searXngCategories) => updateProvider("searxng", { searXngCategories })}
                     />
                   )}
+
+                  {provider.id === "minimax" && (
+                    <MiniMaxRegionPicker
+                      value={override?.minimaxRegion ?? resolvedConfig.minimaxRegion ?? "cn"}
+                      onChange={(minimaxRegion) => updateProvider("minimax", { minimaxRegion })}
+                    />
+                  )}
                 </div>
               )}
             </div>
           )
         })}
       </div>
+    </div>
+  )
+}
+
+function MiniMaxRegionPicker({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (value: "global" | "cn") => void
+}) {
+  const { t } = useTranslation()
+  const regions = [
+    { value: "cn", label: "CN", hint: "api.minimaxi.com" },
+    { value: "global", label: "Global", hint: "api.minimax.io" },
+  ]
+
+  return (
+    <div className="space-y-2">
+      <Label>{t("settings.sections.webSearch.region")}</Label>
+      <div className="flex flex-wrap gap-1.5">
+        {regions.map((region) => (
+          <button
+            key={region.value}
+            type="button"
+            onClick={() => onChange(region.value as "global" | "cn")}
+            className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+              value === region.value
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border hover:bg-accent"
+            }`}
+            title={region.hint}
+          >
+            {region.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {t("settings.sections.webSearch.regionHint")}
+      </p>
     </div>
   )
 }

@@ -13,6 +13,7 @@ const PROVIDER_OPTIONS: Array<{ value: SettingsDraft["multimodalProvider"]; labe
   { value: "openai", label: "OpenAI" },
   { value: "anthropic", label: "Anthropic" },
   { value: "google", label: "Google (Gemini)" },
+  { value: "minimax", label: "MiniMax Token Plan" },
   { value: "ollama", label: "Ollama" },
 ]
 
@@ -151,9 +152,13 @@ export function MultimodalSection({ draft, setDraft }: Props) {
                 <select
                   className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   value={draft.multimodalProvider}
-                  onChange={(e) =>
-                    setDraft("multimodalProvider", e.target.value as SettingsDraft["multimodalProvider"])
-                  }
+                  onChange={(e) => {
+                    const provider = e.target.value as SettingsDraft["multimodalProvider"]
+                    setDraft("multimodalProvider", provider)
+                    if (provider === "minimax" && !draft.multimodalCustomEndpoint) {
+                      setDraft("multimodalCustomEndpoint", "https://api.minimaxi.com")
+                    }
+                  }}
                 >
                   {PROVIDER_OPTIONS.map((p) => (
                     <option key={p.value} value={p.value}>
@@ -191,6 +196,18 @@ export function MultimodalSection({ draft, setDraft }: Props) {
                 </div>
               )}
 
+              {draft.multimodalProvider === "minimax" && (
+                <MiniMaxVisionRegionPicker
+                  value={miniMaxRegionFromEndpoint(draft.multimodalCustomEndpoint)}
+                  onChange={(region) =>
+                    setDraft(
+                      "multimodalCustomEndpoint",
+                      region === "cn" ? "https://api.minimaxi.com" : "https://api.minimax.io",
+                    )
+                  }
+                />
+              )}
+
               <div className="space-y-2">
                 <Label>{t("settings.sections.multimodal.apiKey", "API key")}</Label>
                 <Input
@@ -204,20 +221,32 @@ export function MultimodalSection({ draft, setDraft }: Props) {
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label>{t("settings.sections.multimodal.model", "Model")}</Label>
-                <Input
-                  value={draft.multimodalModel}
-                  onChange={(e) => setDraft("multimodalModel", e.target.value)}
-                  placeholder="e.g. Qwen2.5-VL-7B-Instruct, claude-3-5-sonnet-latest, gemini-2.5-flash"
-                />
+              {draft.multimodalProvider !== "minimax" && (
+                <div className="space-y-2">
+                  <Label>{t("settings.sections.multimodal.model", "Model")}</Label>
+                  <Input
+                    value={draft.multimodalModel}
+                    onChange={(e) => setDraft("multimodalModel", e.target.value)}
+                    placeholder="e.g. Qwen2.5-VL-7B-Instruct, claude-3-5-sonnet-latest, gemini-2.5-flash"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t(
+                      "settings.sections.multimodal.modelHint",
+                      "Must be a vision-capable model. Text-only models will fail with a 400 / image-not-supported error at first ingest.",
+                    )}
+                  </p>
+                </div>
+              )}
+
+              {draft.multimodalProvider === "minimax" && (
                 <p className="text-xs text-muted-foreground">
                   {t(
-                    "settings.sections.multimodal.modelHint",
-                    "Must be a vision-capable model. Text-only models will fail with a 400 / image-not-supported error at first ingest.",
+                    "settings.sections.multimodal.minimaxHint",
+                    "Uses the MiniMax Token Plan MCP image understanding endpoint (`/v1/coding_plan/vlm`). No model name is required.",
                   )}
                 </p>
-              </div>
+              )}
+
             </div>
           )}
 
@@ -283,4 +312,51 @@ export function MultimodalSection({ draft, setDraft }: Props) {
       )}
     </div>
   )
+}
+
+function MiniMaxVisionRegionPicker({
+  value,
+  onChange,
+}: {
+  value: "cn" | "global"
+  onChange: (value: "cn" | "global") => void
+}) {
+  const { t } = useTranslation()
+  const regions = [
+    { value: "cn", label: "CN", hint: "api.minimaxi.com" },
+    { value: "global", label: "Global", hint: "api.minimax.io" },
+  ] as const
+
+  return (
+    <div className="space-y-2">
+      <Label>{t("settings.sections.multimodal.region", "Region")}</Label>
+      <div className="flex flex-wrap gap-1.5">
+        {regions.map((region) => (
+          <button
+            key={region.value}
+            type="button"
+            onClick={() => onChange(region.value)}
+            className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+              value === region.value
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border hover:bg-accent"
+            }`}
+            title={region.hint}
+          >
+            {region.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {t(
+          "settings.sections.multimodal.regionHint",
+          "CN uses the MCP guide host api.minimaxi.com. Global uses api.minimax.io.",
+        )}
+      </p>
+    </div>
+  )
+}
+
+function miniMaxRegionFromEndpoint(endpoint: string): "cn" | "global" {
+  return /api\.minimax\.io/i.test(endpoint) ? "global" : "cn"
 }

@@ -48,6 +48,7 @@ export function resolveSearchConfig(config: SearchApiConfig): SearchApiConfig {
             serpApiEngine: config.serpApiEngine,
             searXngUrl: config.searXngUrl,
             searXngCategories: config.searXngCategories,
+            minimaxRegion: (config as SearchApiConfig & { minimaxRegion?: "global" | "cn" }).minimaxRegion,
           },
         }
       : {}),
@@ -70,6 +71,7 @@ export function resolveSearchConfig(config: SearchApiConfig): SearchApiConfig {
       serpApiEngine: config.serpApiEngine ?? providerConfigs.serpapi?.serpApiEngine ?? "google",
       searXngUrl: config.searXngUrl ?? providerConfigs.searxng?.searXngUrl ?? "",
       searXngCategories: config.searXngCategories ?? providerConfigs.searxng?.searXngCategories ?? ["general"],
+      minimaxRegion: (config as SearchApiConfig & { minimaxRegion?: "global" | "cn" }).minimaxRegion ?? providerConfigs.minimax?.minimaxRegion ?? "cn",
       providerConfigs,
     }
   }
@@ -82,17 +84,16 @@ export function resolveSearchConfig(config: SearchApiConfig): SearchApiConfig {
     serpApiEngine: activeOverride?.serpApiEngine ?? config.serpApiEngine ?? "google",
     searXngUrl: activeOverride?.searXngUrl ?? config.searXngUrl ?? "",
     searXngCategories: activeOverride?.searXngCategories ?? config.searXngCategories ?? ["general"],
+    minimaxRegion: activeOverride?.minimaxRegion ?? (config as SearchApiConfig & { minimaxRegion?: "global" | "cn" }).minimaxRegion ?? "cn",
     providerConfigs,
   }
 }
 
-export function hasConfiguredSearchProvider(config: SearchApiConfig): boolean {
+export function hasUsableSearchConfig(config: SearchApiConfig): boolean {
   const resolved = resolveSearchConfig(config)
   if (resolved.provider === "none") return false
-  if (resolved.provider === "searxng") {
-    return Boolean(resolved.searXngUrl?.trim())
-  }
-  return Boolean(resolved.apiKey?.trim())
+  if (resolved.provider === "searxng") return !!resolved.searXngUrl?.trim()
+  return !!resolved.apiKey?.trim()
 }
 
 export async function webSearch(
@@ -110,6 +111,9 @@ export async function webSearch(
   if (resolved.provider === "searxng" && !resolved.searXngUrl?.trim()) {
     throw new Error("Web search not configured. Add a SearXNG instance URL in Settings.")
   }
+  if (resolved.provider === "minimax" && !resolved.apiKey) {
+    throw new Error("Web search not configured. Add a MiniMax API key in Settings.")
+  }
 
   switch (resolved.provider) {
     case "tavily":
@@ -118,6 +122,8 @@ export async function webSearch(
       return serpApiSearch(query, resolved.apiKey, maxResults, resolved.serpApiEngine ?? "google")
     case "searxng":
       return searXngSearch(query, resolved.searXngUrl ?? "", maxResults, resolved.searXngCategories ?? ["general"])
+    case "minimax":
+      return minimaxSearch(query, resolved.apiKey, maxResults, (resolved.minimaxRegion as "global" | "cn") ?? "cn")
     default:
       throw new Error(`Unknown search provider: ${resolved.provider}`)
   }
@@ -339,5 +345,72 @@ function normalizeSerpApiResult(item: unknown): WebSearchResult {
     url,
     snippet: r.snippet ?? r.summary ?? r.description ?? "",
     source: hostnameFromUrl(url) || r.source || r.displayed_link || "",
+  }
+}
+
+async function minimaxSearch(
+  query: string,
+  apiKey: string,
+  maxResults: number,
+  region: "global" | "cn",
+): Promise<WebSearchResult[]> {
+  const baseUrl = region === "cn" ? "https://api.minimaxi.com" : "https://api.minimax.io"
+  const httpFetch = await getHttpFetch()
+  let response: Response
+  try {
+    response = await httpFetch(`${baseUrl}/v1/coding_plan/search`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        q: query,
+      }),
+    })
+  } catch (err) {
+    if (isFetchNetworkError(err)) {
+      throw new Error(
+        "Network error reaching MiniMax search API. Check your connectivity and whether the API key is still valid.",
+      )
+    }
+    throw err
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "Unknown error")
+    throw new Error(`MiniMax search failed (${response.status}): ${errorText}`)
+  }
+
+  const data = await response.json()
+  const baseResp = (data as { base_resp?: { status_code?: number; status_msg?: string } }).base_resp
+  if (baseResp && baseResp.status_code && baseResp.status_code !== 0) {
+    throw new Error(`MiniMax search failed: ${baseResp.status_msg ?? `status ${baseResp.status_code}`}`)
+  }
+  return normalizeMiniMaxResults(data, maxResults)
+}
+
+function normalizeMiniMaxResults(data: { organic?: unknown[]; results?: unknown[] }, maxResults: number): WebSearchResult[] {
+  return (data.organic ?? data.results ?? [])
+    .slice(0, maxResults)
+    .map((item) => normalizeMiniMaxResult(item))
+    .filter((item) => item.url.length > 0)
+}
+
+function normalizeMiniMaxResult(item: unknown): WebSearchResult {
+  const r = item as {
+    title?: string
+    url?: string
+    link?: string
+    content?: string
+    description?: string
+    snippet?: string
+  }
+  const url = r.link ?? r.url ?? ""
+  return {
+    title: r.title ?? "Untitled",
+    url,
+    snippet: r.snippet ?? r.content ?? r.description ?? "",
+    source: hostnameFromUrl(url),
   }
 }

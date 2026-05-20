@@ -5,6 +5,8 @@ import { normalizePath, isAbsolutePath } from "@/lib/path-utils"
 import { getProjectPathById } from "@/lib/project-identity"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 
+const IMAGE_QUEUE_EXTS = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp"])
+
 // ── Types ─────────────────────────────────────────────────────────────────
 
 export interface IngestTask {
@@ -515,8 +517,12 @@ async function processNext(projectId: string): Promise<void> {
 
   const llmConfig = useWikiStore.getState().llmConfig
 
-  // Check if LLM is configured
-  if (!hasUsableLlm(llmConfig)) {
+  // Check if LLM is configured (image-only tasks skip — use vision model)
+  const isImageTask = (() => {
+    const ext = next.sourcePath.split(".").pop()?.toLowerCase() ?? ""
+    return IMAGE_QUEUE_EXTS.has(ext)
+  })()
+  if (!isImageTask && !hasUsableLlm(llmConfig)) {
     next.status = "failed"
     next.error = "LLM not configured — set API key in Settings"
     processing = false

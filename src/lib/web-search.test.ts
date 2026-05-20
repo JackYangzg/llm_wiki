@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { hasConfiguredSearchProvider, webSearch } from "./web-search"
+import { hasUsableSearchConfig, webSearch } from "./web-search"
 
 const fetchMock = vi.fn<typeof fetch>()
 
@@ -161,7 +161,7 @@ describe("webSearch", () => {
   })
 
   it("treats SearXNG instance URLs as configured without an API key", () => {
-    expect(hasConfiguredSearchProvider({
+    expect(hasUsableSearchConfig({
       provider: "searxng",
       apiKey: "",
       providerConfigs: {
