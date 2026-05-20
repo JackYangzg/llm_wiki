@@ -28,6 +28,7 @@ import {
   stripDeletedWikilinks,
 } from "@/lib/wiki-cleanup"
 import { collectAllFilesIncludingDot } from "@/lib/sources-tree-delete"
+import { fetchUrlContent } from "@/lib/wechat-link-fetcher"
 
 export const INGESTABLE_SOURCE_EXTENSIONS = new Set([
   "md",
@@ -172,6 +173,32 @@ export async function importSourceFolder(
   }
 
   return copiedFiles
+}
+
+export async function importSourceUrl(
+  project: WikiProject,
+  url: string,
+  llmConfig: LlmConfig,
+): Promise<string[]> {
+  const pp = normalizePath(project.path)
+
+  let parsed: Awaited<ReturnType<typeof fetchUrlContent>>
+  try {
+    parsed = await fetchUrlContent(url)
+  } catch (err) {
+    throw new Error(`Failed to fetch URL: ${err}`)
+  }
+
+  const fileName = sanitizeFileName(parsed.title || parsed.url) + ".md"
+  const destPath = await getUniqueDestPath(`${pp}/raw/sources`, fileName)
+
+  const content = `---\nsource: "${parsed.url}"\nsiteName: "${parsed.siteName}"\n---\n\n# ${parsed.title}\n\n${parsed.markdown}`
+
+  await writeFile(destPath, content)
+
+  const taskIds = await enqueueSourceIngest(project, [destPath], llmConfig)
+
+  return taskIds
 }
 
 export async function deleteSourceFile(
@@ -438,4 +465,14 @@ function withRootContext(context: string, rootContext?: string): string {
   if (!rootContext) return context
   if (!context) return rootContext
   return `${rootContext} > ${context}`
+}
+
+function sanitizeFileName(name: string): string {
+  return name
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
+    .replace(/\s+/g, "_")
+    .replace(/_{2,}/g, "_")
+    .replace(/^_|_$/g, "")
+    .slice(0, 200)
+    || "untitled"
 }

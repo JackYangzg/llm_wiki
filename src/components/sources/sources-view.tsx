@@ -17,7 +17,9 @@ import {
   enqueueSourceIngest,
   importSourceFiles,
   importSourceFolder,
+  importSourceUrl,
 } from "@/lib/source-lifecycle"
+import { cancelTask } from "@/lib/ingest-queue"
 
 const SOURCE_TREE_INITIAL_ROWS = 160
 const SOURCE_TREE_LOAD_BATCH = 160
@@ -165,6 +167,22 @@ export function SourcesView() {
     }
   }
 
+  async function handleImportUrl(url: string): Promise<string[]> {
+    if (!project) return []
+
+    setImporting(true)
+    try {
+      const ids = await importSourceUrl(project, url, llmConfig)
+      await loadSources()
+      return ids
+    } catch (err) {
+      console.error(`Failed to import URL:`, err)
+      throw err
+    } finally {
+      setImporting(false)
+    }
+  }
+
   async function handleOpenSource(node: FileNode) {
     setSelectedFile(node.path)
     try {
@@ -288,6 +306,7 @@ export function SourcesView() {
             <Plus className="mr-1 h-4 w-4" />
             {t("sources.importFolder", "Folder")}
           </Button>
+          <UrlImportButton onImport={handleImportUrl} disabled={importing} />
         </div>
       </div>
 
@@ -620,3 +639,108 @@ function DeleteButton({
     </Button>
   )
 }
+
+function UrlImportButton({
+  onImport,
+  disabled,
+}: {
+  onImport: (url: string) => Promise<string[]>
+  disabled: boolean
+}) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const [url, setUrl] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [taskIds, setTaskIds] = useState<string[]>([])
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const trimmed = url.trim()
+    if (!trimmed) return
+
+    setSubmitting(true)
+    setError(null)
+    try {
+      const ids = await onImport(trimmed)
+      setTaskIds(ids)
+      setOpen(false)
+      setUrl("")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function handleCancel() {
+    for (const id of taskIds) {
+      await cancelTask(id)
+    }
+    setTaskIds([])
+    setOpen(false)
+    setUrl("")
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Button
+        size="sm"
+        disabled={disabled}
+        className="mr-1"
+        onClick={() => setOpen(true)}
+      >
+        <LinkIcon className="mr-1 h-4 w-4" />
+        {t("sources.importUrl", "URL")}
+      </Button>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t("sources.importFromUrl", "Import from URL")}</DialogTitle>
+          <DialogDescription>
+            {t("sources.importUrlDescription", "Enter a web page URL to import its content as a source.")}
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3 py-2">
+          <input
+            type="url"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://example.com/article"
+            className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/50 disabled:opacity-50"
+            autoFocus
+            disabled={submitting}
+          />
+          {error && (
+            <p className="text-xs text-destructive">{error}</p>
+          )}
+          <DialogFooter>
+            {submitting ? (
+              <Button type="button" variant="destructive" onClick={handleCancel}>
+                {t("common.cancel", "Cancel")}
+              </Button>
+            ) : (
+              <>
+                <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                  {t("common.cancel", "Cancel")}
+                </Button>
+                <Button type="submit" disabled={!url.trim()}>
+                  {t("sources.import", "Import")}
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog"
+import { Link as LinkIcon } from "lucide-react"
