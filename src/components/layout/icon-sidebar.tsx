@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import {
-  FileText, FolderOpen, Search, Network, ClipboardCheck, Settings, ArrowLeftRight, ClipboardList, Globe, MessageCircle,
+  FileText, FolderOpen, Search, Network, ClipboardCheck, Settings, ArrowLeftRight, ClipboardList, Globe, MessageCircle, Sparkles,
 } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -20,6 +20,7 @@ const NAV_ITEMS: { view: NavView; icon: typeof FileText; labelKey: string }[] = 
   { view: "graph", icon: Network, labelKey: "nav.graph" },
   { view: "lint", icon: ClipboardCheck, labelKey: "nav.lint" },
   { view: "review", icon: ClipboardList, labelKey: "nav.review" },
+  { view: "ai-research", icon: Sparkles, labelKey: "nav.aiResearch" },
 ]
 
 interface IconSidebarProps {

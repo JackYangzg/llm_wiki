@@ -45,6 +45,9 @@ export interface SettingsDraft {
   outputLanguage: string
   maxHistoryMessages: number
 
+  // Ingest
+  ingestConcurrency: number
+
   // Network — global outbound HTTP proxy. Persisted to app-state.json
   // and read by the Rust setup hook on app launch (changes apply
   // after restart). See src/lib/proxy-config.ts.
@@ -67,6 +70,11 @@ export interface SettingsDraft {
   apiEnabled: boolean
   apiAllowUnauthenticated: boolean
   apiToken: string
+
+  // Paper Research
+  paperResearchAutoAnalyze: boolean
+  paperResearchImportDestination: "papers" | "sources"
+  paperResearchLiteratureQueryCount: number
 }
 
 export type DraftSetter = <K extends keyof SettingsDraft>(

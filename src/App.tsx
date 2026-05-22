@@ -5,7 +5,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { useChatStore } from "@/stores/chat-store"
 import { listDirectory, openProject } from "@/commands/fs"
-import { getLastProject, getRecentProjects, saveLastProject, loadLlmConfig, loadLanguage, loadSearchApiConfig, loadEmbeddingConfig, loadMultimodalConfig, loadOutputLanguage, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadScheduledImportConfig, saveScheduledImportConfig, loadSourceWatchConfig, loadApiConfig } from "@/lib/project-store"
+import { getLastProject, getRecentProjects, saveLastProject, loadLlmConfig, loadLanguage, loadSearchApiConfig, loadEmbeddingConfig, loadMultimodalConfig, loadOutputLanguage, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadScheduledImportConfig, saveScheduledImportConfig, loadSourceWatchConfig, loadApiConfig, loadPaperResearchConfig } from "@/lib/project-store"
 import { loadReviewItems, loadChatHistory } from "@/lib/persist"
 import { setupAutoSave } from "@/lib/auto-save"
 import { startClipWatcher } from "@/lib/clip-watcher"
@@ -277,6 +277,20 @@ function App() {
     // Bump data version so any cached graphs/views invalidate
     useWikiStore.getState().bumpDataVersion()
     await saveLastProject(proj)
+
+    const savedPaperResearch = await loadPaperResearchConfig(proj.path)
+    useWikiStore.getState().setPaperResearchConfig({
+      autoAnalyzeOnImport:
+        typeof savedPaperResearch?.autoAnalyzeOnImport === "boolean"
+          ? savedPaperResearch.autoAnalyzeOnImport
+          : true,
+      importDestination:
+        savedPaperResearch?.importDestination === "sources" ? "sources" : "papers",
+      literatureQueryCount:
+        typeof savedPaperResearch?.literatureQueryCount === "number"
+          ? Math.max(1, Math.min(5, savedPaperResearch.literatureQueryCount))
+          : 3,
+    })
 
     // Restore ingest queue (resume interrupted tasks). Keyed by the
     // project's stable UUID so the queue still finds the right project

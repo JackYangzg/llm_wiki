@@ -70,6 +70,32 @@ export function OutputSection({ draft, setDraft }: Props) {
           })}
         </p>
       </div>
+
+      <div className="space-y-2">
+        <Label>{t("settings.sections.output.ingestConcurrency", "Concurrent ingest tasks")}</Label>
+        <p className="text-xs text-muted-foreground">
+          {t("settings.sections.output.ingestConcurrencyHint", "Number of files to analyze in parallel during batch ingest. Higher values speed up batch imports but consume more LLM rate-limit quota. Recommended: 1–4.")}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {[1, 2, 3, 4, 6, 8].map((n) => {
+            const active = draft.ingestConcurrency === n
+            return (
+              <button
+                key={n}
+                type="button"
+                onClick={() => setDraft("ingestConcurrency", n)}
+                className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${
+                  active
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border hover:bg-accent"
+                }`}
+              >
+                {n}
+              </button>
+            )
+          })}
+        </div>
+      </div>
     </div>
   )
 }

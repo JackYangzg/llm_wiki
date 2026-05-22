@@ -13,6 +13,7 @@ import {
   Clock,
   FolderSync,
   Server,
+  Sparkles,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { invoke } from "@tauri-apps/api/core"
@@ -34,6 +35,7 @@ import { NetworkSection } from "./sections/network-section"
 import { ScheduledImportSection } from "./sections/scheduled-import-section"
 import { SourceWatchSection } from "./sections/source-watch-section"
 import { ApiServerSection } from "./sections/api-server-section"
+import { PaperResearchSection } from "./sections/paper-research-section"
 import { ChangelogSection } from "./sections/changelog-section"
 import { MaintenanceSection } from "./sections/maintenance-section"
 import { AboutSection } from "./sections/about-section"
@@ -47,6 +49,7 @@ type CategoryId =
   | "source-watch"
   | "scheduled-import"
   | "api-server"
+  | "ai-research"
   | "output"
   | "interface"
   | "maintenance"
@@ -71,6 +74,7 @@ const CATEGORIES: Category[] = [
   { id: "source-watch", labelKey: "settings.categories.sourceWatch", icon: FolderSync },
   { id: "scheduled-import", labelKey: "settings.categories.scheduledImport", icon: Clock },
   { id: "api-server", labelKey: "settings.categories.apiServer", icon: Server },
+  { id: "ai-research", labelKey: "settings.categories.aiResearch", icon: Sparkles },
   { id: "output", labelKey: "settings.categories.output", icon: Languages },
   { id: "interface", labelKey: "settings.categories.interface", icon: Palette },
   { id: "maintenance", labelKey: "settings.categories.maintenance", icon: Wrench },
@@ -87,6 +91,8 @@ function initialDraft(
   scheduledImport: ReturnType<typeof useWikiStore.getState>["scheduledImportConfig"],
   sourceWatch: ReturnType<typeof useWikiStore.getState>["sourceWatchConfig"],
   apiConfig: ReturnType<typeof useWikiStore.getState>["apiConfig"],
+  paperResearchConfig: ReturnType<typeof useWikiStore.getState>["paperResearchConfig"],
+  ingestConcurrency: number,
   maxHistoryMessages: number,
   uiLanguage: string,
   projectPath?: string,
@@ -139,6 +145,10 @@ function initialDraft(
     apiEnabled: apiConfig.enabled,
     apiAllowUnauthenticated: apiConfig.allowUnauthenticated,
     apiToken: apiConfig.token,
+    paperResearchAutoAnalyze: paperResearchConfig.autoAnalyzeOnImport,
+    paperResearchImportDestination: paperResearchConfig.importDestination,
+    paperResearchLiteratureQueryCount: paperResearchConfig.literatureQueryCount,
+    ingestConcurrency,
     uiLanguage,
   }
 }
@@ -162,6 +172,10 @@ export function SettingsView() {
   const setSourceWatchConfig = useWikiStore((s) => s.setSourceWatchConfig)
   const apiConfig = useWikiStore((s) => s.apiConfig)
   const setApiConfig = useWikiStore((s) => s.setApiConfig)
+  const paperResearchConfig = useWikiStore((s) => s.paperResearchConfig)
+  const setPaperResearchConfig = useWikiStore((s) => s.setPaperResearchConfig)
+  const ingestConcurrency = useWikiStore((s) => s.ingestConcurrency)
+  const setIngestConcurrency = useWikiStore((s) => s.setIngestConcurrency)
   const maxHistoryMessages = useChatStore((s) => s.maxHistoryMessages)
   const setMaxHistoryMessages = useChatStore((s) => s.setMaxHistoryMessages)
   // Drives the red dot next to the "About" row in the settings
@@ -186,6 +200,8 @@ export function SettingsView() {
       scheduledImportConfig,
       sourceWatchConfig,
       apiConfig,
+      paperResearchConfig,
+      ingestConcurrency,
       maxHistoryMessages,
       i18n.language,
       project?.path,
@@ -229,6 +245,8 @@ export function SettingsView() {
         scheduledImportConfig,
         sourceWatchConfig,
         apiConfig,
+        paperResearchConfig,
+        ingestConcurrency,
         maxHistoryMessages,
         prev.uiLanguage,
         project?.path,
@@ -243,6 +261,8 @@ export function SettingsView() {
     scheduledImportConfig,
     sourceWatchConfig,
     apiConfig,
+    paperResearchConfig,
+    ingestConcurrency,
     maxHistoryMessages,
     project,
   ])
@@ -261,6 +281,7 @@ export function SettingsView() {
       saveScheduledImportConfig,
       saveSourceWatchConfig,
       saveApiConfig,
+      savePaperResearchConfig,
     } = await import("@/lib/project-store")
 
     const newLlm = {
@@ -379,6 +400,18 @@ export function SettingsView() {
       console.warn("[api] failed to reload API server config cache:", err)
     }
 
+    const newPaperResearchConfig = {
+      autoAnalyzeOnImport: draft.paperResearchAutoAnalyze,
+      importDestination: draft.paperResearchImportDestination,
+      literatureQueryCount: Math.max(1, Math.min(5, draft.paperResearchLiteratureQueryCount || 3)),
+    }
+    setPaperResearchConfig(newPaperResearchConfig)
+    await savePaperResearchConfig(newPaperResearchConfig, project?.path)
+
+    // Clamp ingest concurrency to 1–8
+    const newIngestConcurrency = Math.max(1, Math.min(8, draft.ingestConcurrency || 1))
+    setIngestConcurrency(newIngestConcurrency)
+
     if (draft.uiLanguage !== i18n.language) {
       await i18n.changeLanguage(draft.uiLanguage)
       await saveLanguage(draft.uiLanguage)
@@ -396,6 +429,7 @@ export function SettingsView() {
     setScheduledImportConfig,
     setSourceWatchConfig,
     setApiConfig,
+    setPaperResearchConfig,
     scheduledImportConfig,
     setMaxHistoryMessages,
     outputLanguage,
@@ -422,6 +456,8 @@ export function SettingsView() {
         return <ScheduledImportSection draft={draft} setDraft={setDraft} />
       case "api-server":
         return <ApiServerSection draft={draft} setDraft={setDraft} />
+      case "ai-research":
+        return <PaperResearchSection draft={draft} setDraft={setDraft} />
       case "output":
         return <OutputSection draft={draft} setDraft={setDraft} />
       case "interface":

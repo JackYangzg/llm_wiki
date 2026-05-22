@@ -406,6 +406,15 @@ async function handleImageIngest(
   return [sourceSummaryRelPath]
 }
 
+/**
+ * Auto-ingest a single source file into the wiki.
+ *
+ * Concurrency: analysis + generation (Steps 1-2) run in parallel across
+ * concurrent queue tasks. The write phase (Steps 3-6) acquires a per-project
+ * lock to prevent index.md / overview.md corruption from interleaved writes.
+ * Content pages use mergePageContent which handles concurrent-write safety
+ * at the individual file level.
+ */
 export async function autoIngest(
   projectPath: string,
   sourcePath: string,
@@ -413,9 +422,7 @@ export async function autoIngest(
   signal?: AbortSignal,
   folderContext?: string,
 ): Promise<string[]> {
-  return withProjectLock(normalizePath(projectPath), () =>
-    autoIngestImpl(projectPath, sourcePath, llmConfig, signal, folderContext),
-  )
+  return autoIngestImpl(projectPath, sourcePath, llmConfig, signal, folderContext)
 }
 
 async function autoIngestImpl(
@@ -744,140 +751,127 @@ async function autoIngestImpl(
     throw new Error(generationActivity.detail || "Generation stream failed")
   }
 
-  // ── Step 3: Write files ───────────────────────────────────────
-  activity.updateItem(activityId, { detail: "Writing files..." })
-  const { writtenPaths, warnings: writeWarnings, hardFailures } = await writeFileBlocks(
-    pp,
-    generation,
-    llmConfig,
-    fileName,
-    signal,
-  )
-
-  // Surface parser / writer warnings to the activity panel so users
-  // don't have to open devtools to find out a block was dropped.
-  // Keeping the base "Writing files..." detail on top and appending the
-  // first few warnings; full list stays in the console.
-  if (writeWarnings.length > 0) {
-    const summary = writeWarnings.length === 1
-      ? writeWarnings[0]
-      : `${writeWarnings.length} ingest warnings: ${writeWarnings.slice(0, 2).join(" · ")}${writeWarnings.length > 2 ? ` … (+${writeWarnings.length - 2} more in console)` : ""}`
-    activity.updateItem(activityId, { detail: summary })
-  }
-
-  // Ensure source summary page exists (LLM may not have generated it correctly)
-  const sourceBaseName = fileName.replace(/\.[^.]+$/, "")
-  const sourceSummaryPath = `wiki/sources/${sourceBaseName}.md`
-  const sourceSummaryFullPath = `${pp}/${sourceSummaryPath}`
-  const hasSourceSummary = writtenPaths.some((p) => p.startsWith("wiki/sources/"))
-
-  // If the signal was aborted (e.g. user switched projects / cancelled),
-  // skip the fallback summary write — the LLM streams returned empty
-  // via the abort fast-path (onDone), and writing a stub file into the
-  // old project's wiki would both be noise and mask the error.
-  // Returning no files lets processNext's length-0 safety net mark the
-  // task for retry rather than "success".
-  if (!hasSourceSummary && !signal?.aborted) {
-    const date = new Date().toISOString().slice(0, 10)
-    const fallbackContent = [
-      "---",
-      `type: source`,
-      `title: "Source: ${fileName}"`,
-      `created: ${date}`,
-      `updated: ${date}`,
-      `sources: ["${fileName}"]`,
-      `tags: []`,
-      `related: []`,
-      "---",
-      "",
-      `# Source: ${fileName}`,
-      "",
-      analysis ? analysis.slice(0, 3000) : "(Analysis not available)",
-      "",
-    ].join("\n")
-    try {
-      await writeFile(sourceSummaryFullPath, fallbackContent)
-      writtenPaths.push(sourceSummaryPath)
-    } catch {
-      // non-critical
-    }
-  }
-
-  // ── Step 3.5: Append extracted images to the source-summary page ─
-  // Skipped when the master toggle is off — see Step 0.6 above for
-  // the full rationale. With captioning disabled we also don't
-  // want the safety-net section to slip image refs into the wiki
-  // through the back door.
-  if (mmCfg.enabled && savedImages.length > 0 && !signal?.aborted) {
-    await injectImagesIntoSourceSummary(pp, fileName, savedImages)
-  }
-
-  if (writtenPaths.length > 0) {
-    try {
-      const tree = await listDirectory(pp)
-      useWikiStore.getState().setFileTree(tree)
-      useWikiStore.getState().bumpDataVersion()
-    } catch {
-      // ignore
-    }
-  }
-
-  // ── Step 4: Parse review items ────────────────────────────────
-  const reviewItems = parseReviewBlocks(generation, sp)
-  if (reviewItems.length > 0) {
-    useReviewStore.getState().addItems(reviewItems)
-  }
-
-  // ── Step 5: Save to cache ───────────────────────────────────
-  // Skip cache when ANY block hit a hard FS failure: we'd otherwise
-  // freeze the partial-write result into the cache and a future
-  // re-ingest of the same source would silently replay only the
-  // pages that succeeded the first time, never giving the user a
-  // chance to recover the failed ones. Soft drops (language
-  // mismatch, path-traversal rejection, empty-path) are NOT failures
-  // — they represent deterministic decisions and caching them is
-  // safe.
-  if (writtenPaths.length > 0 && hardFailures.length === 0) {
-    await saveIngestCache(pp, fileName, sourceContent, writtenPaths)
-  } else if (hardFailures.length > 0) {
-    console.warn(
-      `[ingest] Skipping cache save for "${fileName}" — ${hardFailures.length} block(s) failed to write: ${hardFailures.join(", ")}`,
+  // ── Steps 3-6: Write phase (serialized per project) ──────────
+  // The project lock ensures index.md / overview.md writes from
+  // concurrent ingest tasks don't interleave. Analysis & generation
+  // (Steps 1-2) run outside the lock so multiple files can be
+  // analyzed in parallel.
+  return withProjectLock(pp, async () => {
+    // ── Step 3: Write files ───────────────────────────────────────
+    activity.updateItem(activityId, { detail: "Writing files..." })
+    const { writtenPaths, warnings: writeWarnings, hardFailures } = await writeFileBlocks(
+      pp,
+      generation,
+      llmConfig,
+      fileName,
+      signal,
     )
-  }
 
-  // ── Step 6: Generate embeddings (if enabled) ───────────────
-  const embCfg = useWikiStore.getState().embeddingConfig
-  if (embCfg.enabled && embCfg.model && writtenPaths.length > 0) {
-    try {
-      const { embedPage } = await import("@/lib/embedding")
-      for (const wpath of writtenPaths) {
-        const pageId = wpath.split("/").pop()?.replace(/\.md$/, "") ?? ""
-        if (!pageId || ["index", "log", "overview"].includes(pageId)) continue
-        try {
-          const content = await readFile(`${pp}/${wpath}`)
-          const titleMatch = content.match(/^---\n[\s\S]*?^title:\s*["']?(.+?)["']?\s*$/m)
-          const title = titleMatch ? titleMatch[1].trim() : pageId
-          await embedPage(pp, pageId, title, content, embCfg)
-        } catch {
-          // non-critical
-        }
-      }
-    } catch {
-      // embedding module not available
+    // Surface parser / writer warnings to the activity panel so users
+    // don't have to open devtools to find out a block was dropped.
+    if (writeWarnings.length > 0) {
+      const summary = writeWarnings.length === 1
+        ? writeWarnings[0]
+        : `${writeWarnings.length} ingest warnings: ${writeWarnings.slice(0, 2).join(" · ")}${writeWarnings.length > 2 ? ` … (+${writeWarnings.length - 2} more in console)` : ""}`
+      activity.updateItem(activityId, { detail: summary })
     }
-  }
 
-  const detail = writtenPaths.length > 0
-    ? `${writtenPaths.length} files written${reviewItems.length > 0 ? `, ${reviewItems.length} review item(s)` : ""}`
-    : "No files generated"
+    // Ensure source summary page exists (LLM may not have generated it correctly)
+    const sourceBaseName = fileName.replace(/\.[^.]+$/, "")
+    const sourceSummaryPath = `wiki/sources/${sourceBaseName}.md`
+    const sourceSummaryFullPath = `${pp}/${sourceSummaryPath}`
+    const hasSourceSummary = writtenPaths.some((p) => p.startsWith("wiki/sources/"))
 
-  activity.updateItem(activityId, {
-    status: writtenPaths.length > 0 ? "done" : "error",
-    detail,
-    filesWritten: writtenPaths,
+    if (!hasSourceSummary && !signal?.aborted) {
+      const date = new Date().toISOString().slice(0, 10)
+      const fallbackContent = [
+        "---",
+        `type: source`,
+        `title: "Source: ${fileName}"`,
+        `created: ${date}`,
+        `updated: ${date}`,
+        `sources: ["${fileName}"]`,
+        `tags: []`,
+        `related: []`,
+        "---",
+        "",
+        `# Source: ${fileName}`,
+        "",
+        analysis ? analysis.slice(0, 3000) : "(Analysis not available)",
+        "",
+      ].join("\n")
+      try {
+        await writeFile(sourceSummaryFullPath, fallbackContent)
+        writtenPaths.push(sourceSummaryPath)
+      } catch {
+        // non-critical
+      }
+    }
+
+    // ── Step 3.5: Append extracted images to the source-summary page ─
+    if (mmCfg.enabled && savedImages.length > 0 && !signal?.aborted) {
+      await injectImagesIntoSourceSummary(pp, fileName, savedImages)
+    }
+
+    if (writtenPaths.length > 0) {
+      try {
+        const tree = await listDirectory(pp)
+        useWikiStore.getState().setFileTree(tree)
+        useWikiStore.getState().bumpDataVersion()
+      } catch {
+        // ignore
+      }
+    }
+
+    // ── Step 4: Parse review items ────────────────────────────────
+    const reviewItems = parseReviewBlocks(generation, sp)
+    if (reviewItems.length > 0) {
+      useReviewStore.getState().addItems(reviewItems)
+    }
+
+    // ── Step 5: Save to cache ───────────────────────────────────
+    if (writtenPaths.length > 0 && hardFailures.length === 0) {
+      await saveIngestCache(pp, fileName, sourceContent, writtenPaths)
+    } else if (hardFailures.length > 0) {
+      console.warn(
+        `[ingest] Skipping cache save for "${fileName}" — ${hardFailures.length} block(s) failed to write: ${hardFailures.join(", ")}`,
+      )
+    }
+
+    // ── Step 6: Generate embeddings (if enabled) ───────────────
+    const embCfg = useWikiStore.getState().embeddingConfig
+    if (embCfg.enabled && embCfg.model && writtenPaths.length > 0) {
+      try {
+        const { embedPage } = await import("@/lib/embedding")
+        for (const wpath of writtenPaths) {
+          const pageId = wpath.split("/").pop()?.replace(/\.md$/, "") ?? ""
+          if (!pageId || ["index", "log", "overview"].includes(pageId)) continue
+          try {
+            const content = await readFile(`${pp}/${wpath}`)
+            const titleMatch = content.match(/^---\n[\s\S]*?^title:\s*["']?(.+?)["']?\s*$/m)
+            const title = titleMatch ? titleMatch[1].trim() : pageId
+            await embedPage(pp, pageId, title, content, embCfg)
+          } catch {
+            // non-critical
+          }
+        }
+      } catch {
+        // embedding module not available
+      }
+    }
+
+    const detail = writtenPaths.length > 0
+      ? `${writtenPaths.length} files written${reviewItems.length > 0 ? `, ${reviewItems.length} review item(s)` : ""}`
+      : "No files generated"
+
+    activity.updateItem(activityId, {
+      status: writtenPaths.length > 0 ? "done" : "error",
+      detail,
+      filesWritten: writtenPaths,
+    })
+
+    return writtenPaths
   })
-
-  return writtenPaths
 }
 
 /**
@@ -1129,6 +1123,12 @@ export function buildAnalysisPrompt(purpose: string, index: string, sourceConten
     "- What evidence supports them?",
     "- How strong is the evidence?",
     "",
+    "## Academic Paper Analysis (when the source is a paper, PDF, arXiv record, or TeX)",
+    "- Identify the paper's problem, context, key idea, method, experiments/results, limitations, datasets/benchmarks, open questions, and your concise take.",
+    "- Distinguish paper-specific method narrative from reusable, named methods that deserve their own method page.",
+    "- Extract bibliographic identity when present: title, authors, year, venue, arXiv ID, Semantic Scholar ID, citations, contribution type, datasets, and TLDR.",
+    "- Follow OmegaWiki's conservative entity policy: create separate method/concept pages only for reusable, citable concepts or techniques; otherwise keep details on the paper page.",
+    "",
     "## Connections to Existing Wiki",
     "- What existing pages does this source relate to?",
     "- Does it strengthen, challenge, or extend existing knowledge?",
@@ -1171,11 +1171,13 @@ export function buildGenerationPrompt(schema: string, purpose: string, index: st
     "## What to generate",
     "",
     `1. A source summary page at **wiki/sources/${sourceBaseName}.md** (MUST use this exact path)`,
-    "2. Entity pages in wiki/entities/ for key entities identified in the analysis",
-    "3. Concept pages in wiki/concepts/ for key concepts identified in the analysis",
-    "4. An updated wiki/index.md — add new entries to existing categories, preserve all existing entries",
-    "5. A log entry for wiki/log.md (just the new entry to append, format: ## [YYYY-MM-DD] ingest | Title)",
-    "6. An updated wiki/overview.md — a high-level summary of what the entire wiki covers, updated to reflect the newly ingested source. This should be a comprehensive 2-5 paragraph overview of ALL topics in the wiki, not just the new source.",
+    "2. For academic papers, also create a paper page in **wiki/papers/** with OmegaWiki-style sections: Problem & Context, Key idea, Method, Experiment & Results, Limitations, Open questions, My take, Related.",
+    "3. Entity pages in wiki/entities/ for key entities identified in the analysis",
+    "4. Concept pages in wiki/concepts/ for key concepts identified in the analysis",
+    "5. For academic papers, method pages in **wiki/methods/** only for named, reusable, citable techniques. Do not duplicate every paper-specific method detail as a method page.",
+    "6. An updated wiki/index.md — add new entries to existing categories, preserve all existing entries",
+    "7. A log entry for wiki/log.md (just the new entry to append, format: ## [YYYY-MM-DD] ingest | Title)",
+    "8. An updated wiki/overview.md — a high-level summary of what the entire wiki covers, updated to reflect the newly ingested source. This should be a comprehensive 2-5 paragraph overview of ALL topics in the wiki, not just the new source.",
     "",
     "## Frontmatter Rules (CRITICAL — parser is strict)",
     "",
@@ -1192,7 +1194,7 @@ export function buildGenerationPrompt(schema: string, purpose: string, index: st
     "   write `related: [a, b]` with bare slugs.",
     "",
     "Required fields and types:",
-    "  • type     — one of: source | entity | concept | comparison | query | synthesis",
+    "  • type     — one of: source | entity | concept | paper | method | comparison | query | synthesis",
     "  • title    — string (quote it if it contains a colon, e.g. `title: \"Foo: Bar\"`)",
     "  • created  — date in YYYY-MM-DD form (no quotes)",
     "  • updated  — same as created",
@@ -1200,6 +1202,13 @@ export function buildGenerationPrompt(schema: string, purpose: string, index: st
     "  • related  — array of bare wiki page slugs: `related: [foo, bar-baz]`. Do NOT include",
     "               `wiki/`, `.md`, or `[[…]]` here — slugs only.",
     `  • sources  — array of source filenames; MUST include "${sourceFileName}".`,
+    "",
+    "Paper pages should additionally include these frontmatter fields when known:",
+    "  • arxiv, s2_id, year, venue, authors, tldr, contribution_type, datasets, importance",
+    "  • contribution_type values should come from: method, theory, benchmark, analysis, application, system, position, survey",
+    "  • importance is an integer 1-5 based on citation/influence/novelty signals; use 3 when uncertain.",
+    "",
+    "Method pages should include a reusable technique summary, source_papers, aliases, and type when known.",
     "",
     "Concrete example of a complete, parseable page (everything between the two `---` lines",
     "is the frontmatter; the heading and prose below are the body):",

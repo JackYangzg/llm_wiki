@@ -1,6 +1,6 @@
 import { load } from "@tauri-apps/plugin-store"
 import type { WikiProject } from "@/types/wiki"
-import type { ApiConfig, LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, ProviderConfigs, ProxyConfig, ScheduledImportConfig, SourceWatchConfig, WechatImportConfig } from "@/stores/wiki-store"
+import type { ApiConfig, LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, PaperResearchConfig, ProviderConfigs, ProxyConfig, ScheduledImportConfig, SourceWatchConfig, WechatImportConfig } from "@/stores/wiki-store"
 import { normalizeSourceWatchConfig } from "@/lib/source-watch-config"
 import { normalizePath } from "@/lib/path-utils"
 
@@ -155,6 +155,45 @@ export async function saveApiConfig(config: ApiConfig): Promise<void> {
 export async function loadApiConfig(): Promise<ApiConfig | null> {
   const store = await getStore()
   return (await store.get<ApiConfig>(API_CONFIG_KEY)) ?? null
+}
+
+const PAPER_RESEARCH_CONFIG_KEY = "paperResearchConfig"
+const PAPER_RESEARCH_CONFIG_KEY_PREFIX = "paperResearchConfig:"
+const LEGACY_AI_RESEARCH_CONFIG_KEY = "aiResearchConfig"
+
+function paperResearchConfigKey(projectPath?: string): string {
+  return projectPath
+    ? `${PAPER_RESEARCH_CONFIG_KEY_PREFIX}${normalizePath(projectPath)}`
+    : PAPER_RESEARCH_CONFIG_KEY
+}
+
+export async function savePaperResearchConfig(config: PaperResearchConfig, projectPath?: string): Promise<void> {
+  const store = await getStore()
+  await store.set(paperResearchConfigKey(projectPath), config)
+  await store.save()
+}
+
+export async function loadPaperResearchConfig(projectPath?: string): Promise<PaperResearchConfig | null> {
+  const store = await getStore()
+  if (projectPath) {
+    const perProject = await store.get<PaperResearchConfig>(paperResearchConfigKey(projectPath))
+    if (perProject) return perProject
+  }
+  const current = await store.get<PaperResearchConfig>(PAPER_RESEARCH_CONFIG_KEY)
+  if (current) return current
+  const legacy = await store.get<Partial<PaperResearchConfig> & { autoIngestResearch?: boolean }>(LEGACY_AI_RESEARCH_CONFIG_KEY)
+  if (!legacy) return null
+  return {
+    autoAnalyzeOnImport:
+      typeof legacy.autoAnalyzeOnImport === "boolean"
+        ? legacy.autoAnalyzeOnImport
+        : legacy.autoIngestResearch ?? true,
+    importDestination: legacy.importDestination === "sources" ? "sources" : "papers",
+    literatureQueryCount:
+      typeof legacy.literatureQueryCount === "number"
+        ? legacy.literatureQueryCount
+        : 3,
+  }
 }
 
 const SCHEDULED_IMPORT_KEY_PREFIX = "scheduledImportConfig:"

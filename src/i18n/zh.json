@@ -10,10 +10,12 @@
     "graph": "关系图",
     "lint": "检查",
     "review": "待审阅",
+    "aiResearch": "论文研究平台",
     "settings": "设置",
     "switchProject": "切换项目",
     "updateAvailable": "有可用更新",
-    "updateAvailableSuffix": " · 有更新"
+    "updateAvailableSuffix": " · 有更新",
+    "wechat": "微信"
   },
   "updateBanner": {
     "message": "新版本 {{version}} 已发布",
@@ -188,10 +190,14 @@
       "sourceWatch": "资料文件夹监控",
       "scheduledImport": "定时导入",
       "apiServer": "API 服务",
+      "aiResearch": "论文研究平台",
       "output": "输出偏好",
       "interface": "界面",
       "maintenance": "维护",
       "changelog": "更新日志",
+      "wechat": "微信",
+      "wechatDisconnected": "已断开",
+      "wechatRelogin": "重新登录",
       "about": "关于"
     },
     "sections": {
@@ -420,7 +426,9 @@
         "aiLanguageHint": "强制 AI 生成内容（chat 回复、wiki 页面、research 结果、lint 报告）使用指定语言。选 \"Auto\" 让 AI 跟随用户输入或源文档的语言。",
         "historyLength": "对话历史长度",
         "historyHint": "每次请求发给 AI 的历史消息条数。多 = 上下文更完整但更费 token。",
-        "historyCurrent": "当前 {{count}} 条消息（约 {{turns}} 轮对话）"
+        "historyCurrent": "当前 {{count}} 条消息（约 {{turns}} 轮对话）",
+        "ingestConcurrency": "并发 Ingest 任务数",
+        "ingestConcurrencyHint": "批量导入时同时分析的文件数量。值越大批量导入越快，但同时占用更多 LLM 并发配额。推荐 1–4。"
       },
       "interface": {
         "title": "界面",
@@ -557,5 +565,53 @@
     "minutesAgo": "{{count}} 分钟前",
     "hoursAgo": "{{count}} 小时前",
     "daysAgo": "{{count}} 天前"
+  },
+  "paperResearch": {
+    "title": "论文研究平台",
+    "subtitle": "对论文进行检索与研究",
+    "openProject": "打开项目后使用论文研究平台。",
+    "importDialogTitle": "导入论文",
+    "paperFiles": "论文文件",
+    "allFiles": "所有文件",
+    "importPapers": "导入论文",
+    "collectTitle": "论文搜集",
+    "topicPlaceholder": "输入研究方向、论文主题或问题...",
+    "collect": "搜集",
+    "collectHint": "从互联网上检索最近一年内最相关且权威的论文",
+    "candidatesTitle": "候选论文",
+    "candidateCount": "{{count}} 篇候选论文",
+    "unknownAuthors": "未知作者",
+    "noAbstract": "暂无摘要。",
+    "collectAndAnalyze": "搜集并分析",
+    "analysisTitle": "PDF / 论文分析",
+    "fileCount": "{{count}} 个文件",
+    "noPapers": "暂无导入的论文。",
+    "noPapersHint": "导入 PDF 或 TeX 文件后，当前 ingest 流程会提取内容并写入 Wiki 页面。",
+    "analyze": "分析",
+    "settingsTitle": "论文研究平台",
+    "settingsDescription": "配置论文研究与 PDF 分析入口。统计、图谱、搜索继续使用当前项目已有功能。",
+    "settingsAutoAnalyze": "导入后自动分析论文",
+    "settingsAutoAnalyzeHelp": "导入 PDF/TeX 后自动进入当前项目的 ingest 队列；关闭后可在面板中手动分析。",
+    "settingsImportDestination": "论文存放地址",
+    "settingsDestinationPapers": "raw/papers（OmegaWiki 风格）",
+    "settingsDestinationSources": "raw/sources（当前项目资料库）",
+    "settingsImportDestinationHelp": "选择搜集和导入的论文存放位置；面板列表和分析 sourceRoot 会跟随该配置。",
+    "settingsQueryCount": "文献研究查询数",
+    "settingsQueryCountHelp": "从研究主题扩展出的搜索查询数量。"
+  },
+  "wechat": {
+    "panelTitle": "文件传输",
+    "sendMessage": "发送",
+    "typeMessage": "输入消息...",
+    "noMessages": "暂无消息",
+    "connected": "已连接",
+    "disconnected": "已断开",
+    "relogin": "重新登录",
+    "scanPrompt": "使用微信扫码登录",
+    "scanConfirm": "已扫码，请在手机上确认",
+    "startingService": "正在启动服务...",
+    "loggedIn": "已登录",
+    "loginFailed": "登录失败",
+    "noProject": "请先打开一个项目"
   }
 }
