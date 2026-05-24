@@ -22,7 +22,8 @@ import { Button } from "@/components/ui/button"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useChatStore } from "@/stores/chat-store"
 import { useUpdateStore, hasAvailableUpdate } from "@/stores/update-store"
-import { loadSourceWatchConfig, saveLanguage } from "@/lib/project-store"
+import { loadSourceWatchConfig, saveLanguage, savePaperMonitorConfig } from "@/lib/project-store"
+import type { PaperMonitorConfig } from "@/stores/wiki-store"
 import type { SettingsDraft, DraftSetter } from "./settings-types"
 import { normalizeSourceWatchConfig } from "@/lib/source-watch-config"
 import { LlmProviderSection } from "./sections/llm-provider-section"
@@ -92,6 +93,7 @@ function initialDraft(
   sourceWatch: ReturnType<typeof useWikiStore.getState>["sourceWatchConfig"],
   apiConfig: ReturnType<typeof useWikiStore.getState>["apiConfig"],
   paperResearchConfig: ReturnType<typeof useWikiStore.getState>["paperResearchConfig"],
+  paperMonitorConfig: ReturnType<typeof useWikiStore.getState>["paperMonitorConfig"],
   ingestConcurrency: number,
   maxHistoryMessages: number,
   uiLanguage: string,
@@ -148,6 +150,12 @@ function initialDraft(
     paperResearchAutoAnalyze: paperResearchConfig.autoAnalyzeOnImport,
     paperResearchImportDestination: paperResearchConfig.importDestination,
     paperResearchLiteratureQueryCount: paperResearchConfig.literatureQueryCount,
+    paperMonitorEnabled: paperMonitorConfig.enabled,
+    paperMonitorTopics: paperMonitorConfig.topics,
+    paperMonitorSources: paperMonitorConfig.sources,
+    paperMonitorMaxDailyPapers: paperMonitorConfig.maxDailyPapers,
+    paperMonitorAutoPush: paperMonitorConfig.autoPushToKnowledge,
+    paperMonitorScheduledTime: paperMonitorConfig.scheduledTime,
     ingestConcurrency,
     uiLanguage,
   }
@@ -174,6 +182,8 @@ export function SettingsView() {
   const setApiConfig = useWikiStore((s) => s.setApiConfig)
   const paperResearchConfig = useWikiStore((s) => s.paperResearchConfig)
   const setPaperResearchConfig = useWikiStore((s) => s.setPaperResearchConfig)
+  const paperMonitorConfig = useWikiStore((s) => s.paperMonitorConfig)
+  const setPaperMonitorConfig = useWikiStore((s) => s.setPaperMonitorConfig)
   const ingestConcurrency = useWikiStore((s) => s.ingestConcurrency)
   const setIngestConcurrency = useWikiStore((s) => s.setIngestConcurrency)
   const maxHistoryMessages = useChatStore((s) => s.maxHistoryMessages)
@@ -201,6 +211,7 @@ export function SettingsView() {
       sourceWatchConfig,
       apiConfig,
       paperResearchConfig,
+      paperMonitorConfig,
       ingestConcurrency,
       maxHistoryMessages,
       i18n.language,
@@ -246,6 +257,7 @@ export function SettingsView() {
         sourceWatchConfig,
         apiConfig,
         paperResearchConfig,
+        paperMonitorConfig,
         ingestConcurrency,
         maxHistoryMessages,
         prev.uiLanguage,
@@ -262,6 +274,7 @@ export function SettingsView() {
     sourceWatchConfig,
     apiConfig,
     paperResearchConfig,
+    paperMonitorConfig,
     ingestConcurrency,
     maxHistoryMessages,
     project,
@@ -407,6 +420,25 @@ export function SettingsView() {
     }
     setPaperResearchConfig(newPaperResearchConfig)
     await savePaperResearchConfig(newPaperResearchConfig, project?.path)
+
+    const newPaperMonitorConfig: PaperMonitorConfig = {
+      enabled: draft.paperMonitorEnabled,
+      topics: draft.paperMonitorTopics,
+      sources: draft.paperMonitorSources,
+      maxDailyPapers: Math.max(1, Math.min(500, draft.paperMonitorMaxDailyPapers || 50)),
+      autoPushToKnowledge: draft.paperMonitorAutoPush,
+      scheduledTime: draft.paperMonitorScheduledTime || "09:00",
+    }
+    setPaperMonitorConfig(newPaperMonitorConfig)
+    if (project?.path) {
+      await savePaperMonitorConfig(newPaperMonitorConfig, project.path)
+      const { startPaperMonitor, stopPaperMonitor } = await import("@/lib/paper-monitor")
+      if (newPaperMonitorConfig.enabled) {
+        startPaperMonitor(project, newPaperMonitorConfig, newLlm)
+      } else {
+        stopPaperMonitor()
+      }
+    }
 
     // Clamp ingest concurrency to 1–8
     const newIngestConcurrency = Math.max(1, Math.min(8, draft.ingestConcurrency || 1))

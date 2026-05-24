@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react"
 import {
-  FileText, FolderOpen, Search, Network, ClipboardCheck, Settings, ArrowLeftRight, ClipboardList, Globe, MessageCircle, Sparkles,
+  FileText, FolderOpen, Search, Network, ClipboardCheck, Settings, ArrowLeftRight, ClipboardList, Globe, MessageCircle, Sparkles, ScrollText,
 } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { useResearchStore } from "@/stores/research-store"
 import { useUpdateStore, hasAvailableUpdate } from "@/stores/update-store"
+import { useLogStore } from "@/stores/log-store"
 import { useTranslation } from "react-i18next"
 import logoImg from "@/assets/logo.jpg"
 import type { WikiState } from "@/stores/wiki-store"
@@ -47,6 +48,9 @@ export function IconSidebar({ onSwitchProject }: IconSidebarProps) {
   // remaining indicator that an update is available, so the user
   // never finds their way back to it.
   const updateAvailable = useUpdateStore((s) => hasAvailableUpdate(s))
+  const logUnreadCount = useLogStore((s) => s.entries.filter((e) => !e.read).length)
+  const toggleLogPanel = useLogStore((s) => s.togglePanel)
+  const logPanelOpen = useLogStore((s) => s.panelOpen)
 
   // Daemon health check
   const [daemonStatus, setDaemonStatus] = useState<string>("starting")
@@ -201,6 +205,24 @@ export function IconSidebar({ onSwitchProject }: IconSidebarProps) {
               {t("nav.settings")}
               {updateAvailable ? t("nav.updateAvailableSuffix") : ""}
             </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              onClick={toggleLogPanel}
+              className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
+                logPanelOpen
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
+              }`}
+            >
+              <ScrollText className="h-5 w-5" />
+              {logUnreadCount > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                  {logUnreadCount > 99 ? "99+" : logUnreadCount}
+                </span>
+              )}
+            </TooltipTrigger>
+            <TooltipContent side="right">{t("log.title", "日志")}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger

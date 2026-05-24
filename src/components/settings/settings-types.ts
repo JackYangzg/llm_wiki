@@ -1,5 +1,5 @@
 import type { CustomApiMode } from "./llm-presets"
-import type { ReasoningConfig, SourceWatchConfig } from "@/stores/wiki-store"
+import type { ReasoningConfig, SourceWatchConfig, PaperMonitorConfig } from "@/stores/wiki-store"
 
 /**
  * Shape of the draft state each section reads from and writes into.
@@ -75,6 +75,14 @@ export interface SettingsDraft {
   paperResearchAutoAnalyze: boolean
   paperResearchImportDestination: "papers" | "sources"
   paperResearchLiteratureQueryCount: number
+
+  // Paper Monitor
+  paperMonitorEnabled: boolean
+  paperMonitorTopics: PaperMonitorConfig["topics"]
+  paperMonitorSources: PaperMonitorConfig["sources"]
+  paperMonitorMaxDailyPapers: number
+  paperMonitorAutoPush: boolean
+  paperMonitorScheduledTime: string
 }
 
 export type DraftSetter = <K extends keyof SettingsDraft>(

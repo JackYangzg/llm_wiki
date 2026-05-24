@@ -3,6 +3,7 @@ import type { WikiProject, FileNode } from "@/types/wiki"
 import { DEFAULT_SOURCE_WATCH_CONFIG } from "@/lib/source-watch-config"
 import { DEFAULT_IMPORT_CONFIG, type WechatImportConfig } from "@/lib/wechat-import"
 import { DEFAULT_PAPER_RESEARCH_CONFIG, type PaperResearchConfig } from "@/lib/paper-research"
+import { DEFAULT_PAPER_MONITOR_CONFIG, type PaperMonitorConfig } from "@/lib/paper-monitor"
 import type { WechatMessage } from "@/lib/wechat-login"
 
 /**
@@ -276,6 +277,7 @@ interface WikiState {
   sourceWatchConfig: SourceWatchConfig
   apiConfig: ApiConfig
   paperResearchConfig: PaperResearchConfig
+  paperMonitorConfig: PaperMonitorConfig
   wechatImportConfig: WechatImportConfig
   wechatDisconnected: boolean
   wechatPanelOpen: boolean
@@ -303,6 +305,7 @@ interface WikiState {
   setSourceWatchConfig: (config: SourceWatchConfig) => void
   setApiConfig: (config: ApiConfig) => void
   setPaperResearchConfig: (config: PaperResearchConfig) => void
+  setPaperMonitorConfig: (config: PaperMonitorConfig) => void
   setWechatImportConfig: (config: WechatImportConfig) => void
   setWechatDisconnected: (disconnected: boolean) => void
   setWechatPanelOpen: (open: boolean) => void
@@ -408,6 +411,8 @@ export const useWikiStore = create<WikiState>((set) => ({
 
   paperResearchConfig: DEFAULT_PAPER_RESEARCH_CONFIG,
 
+  paperMonitorConfig: DEFAULT_PAPER_MONITOR_CONFIG,
+
   wechatImportConfig: DEFAULT_IMPORT_CONFIG,
   wechatDisconnected: false,
   wechatPanelOpen: false,
@@ -427,6 +432,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   setSourceWatchConfig: (sourceWatchConfig) => set({ sourceWatchConfig }),
   setApiConfig: (apiConfig) => set({ apiConfig }),
   setPaperResearchConfig: (paperResearchConfig) => set({ paperResearchConfig }),
+  setPaperMonitorConfig: (paperMonitorConfig) => set({ paperMonitorConfig }),
   setWechatImportConfig: (wechatImportConfig) => set({ wechatImportConfig }),
   setWechatDisconnected: (wechatDisconnected) => set({ wechatDisconnected }),
   setWechatPanelOpen: (wechatPanelOpen) => set({ wechatPanelOpen }),
@@ -447,4 +453,4 @@ export const useWikiStore = create<WikiState>((set) => ({
   bumpDataVersion: () => set((state) => ({ dataVersion: state.dataVersion + 1 })),
 }))
 
-export type { WikiState, LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, ProxyConfig, ScheduledImportConfig, SourceWatchConfig, ApiConfig, PaperResearchConfig, WechatImportConfig }
+export type { WikiState, LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, ProxyConfig, ScheduledImportConfig, SourceWatchConfig, ApiConfig, PaperResearchConfig, PaperMonitorConfig, WechatImportConfig }

@@ -499,7 +499,16 @@
   "activity": {
     "processing": "处理中：{{title}}",
     "done": "已完成：{{title}}",
-    "clearCompleted": "清除已完成"
+    "clearCompleted": "清除已完成",
+    "analyzing": "{{count}} 分析中",
+    "queuedStatus": "{{pending}}/{{total}} 排队",
+    "ingestStatusLabel": "Ingest: {{status}}",
+    "ingestQueueLabel": "排队 {{pending}}/{{total}} · 活跃 {{active}}",
+    "ingestFailed": "{{count}} failed",
+    "ingestFailedTasks": "{{count}} 个失败任务",
+    "fileSyncPending": "File sync: {{count}} pending",
+    "fileSyncFailed": "File sync: {{count}} failed",
+    "fileSyncError": "File sync failed"
   },
   "fileTree": {
     "noProject": "未打开项目"
@@ -588,6 +597,7 @@
     "noPapers": "暂无导入的论文。",
     "noPapersHint": "导入 PDF 或 TeX 文件后，当前 ingest 流程会提取内容并写入 Wiki 页面。",
     "analyze": "分析",
+    "uncategorized": "分析集合",
     "settingsTitle": "论文研究平台",
     "settingsDescription": "配置论文研究与 PDF 分析入口。统计、图谱、搜索继续使用当前项目已有功能。",
     "settingsAutoAnalyze": "导入后自动分析论文",
@@ -597,7 +607,48 @@
     "settingsDestinationSources": "raw/sources（当前项目资料库）",
     "settingsImportDestinationHelp": "选择搜集和导入的论文存放位置；面板列表和分析 sourceRoot 会跟随该配置。",
     "settingsQueryCount": "文献研究查询数",
-    "settingsQueryCountHelp": "从研究主题扩展出的搜索查询数量。"
+    "settingsQueryCountHelp": "从研究主题扩展出的搜索查询数量。",
+    "monitor": {
+      "title": "每日论文监控",
+      "description": "每天根据配置的主题和来源自动扫描新论文。",
+      "enable": "启用每日论文监控",
+      "enableHelp": "每24小时自动从配置的来源搜索新论文。",
+      "topics": "监控主题",
+      "topicPlaceholder": "输入研究主题或搜索查询...",
+      "addTopic": "添加",
+      "recommend": "推荐",
+      "recommendations": "推荐主题",
+      "recommendEmpty": "LLM 未返回推荐结果，请尝试更具体的主题。",
+      "recommendError": "获取推荐失败，请检查 LLM 配置。",
+      "add": "添加",
+      "noTopics": "未配置监控主题。请至少添加一个主题以开始监控。",
+      "sources": "监控来源",
+      "sourceArxiv": "arXiv",
+      "sourceOpenAlex": "OpenAlex",
+      "sourceCrossref": "Crossref",
+      "maxDaily": "每日最大论文数",
+      "maxDailyHelp": "每天跨所有主题收集的论文最大数量。",
+      "autoPush": "自动推送到知识库",
+      "autoPushHelp": "启用后，发现的论文将自动推送到 Wiki 知识库。关闭后可以先审阅再手动推送。",
+      "scheduledTime": "每日扫描时间",
+      "scheduledTimeHelp": "每天在此时间触发一次论文扫描。",
+      "scanNow": "立即扫描",
+      "scanning": "扫描中...",
+      "imported": "已导入",
+      "noScansYet": "暂无扫描记录，点击「立即扫描」执行首次扫描。",
+      "dailyResults": "每日监控结果",
+      "scanCount": "{{count}} 次扫描",
+      "paperCount": "{{count}} 篇论文",
+      "noPapersFound": "本次扫描未发现论文。",
+      "pushToWiki": "推送到 Wiki",
+      "topicsLabel": "主题"
+    }
+  },
+  "log": {
+    "title": "日志",
+    "panelTitle": "系统日志",
+    "empty": "暂无日志",
+    "clearAll": "清空"
   },
   "wechat": {
     "panelTitle": "文件传输",

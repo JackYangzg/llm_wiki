@@ -5,12 +5,13 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { useChatStore } from "@/stores/chat-store"
 import { listDirectory, openProject } from "@/commands/fs"
-import { getLastProject, getRecentProjects, saveLastProject, loadLlmConfig, loadLanguage, loadSearchApiConfig, loadEmbeddingConfig, loadMultimodalConfig, loadOutputLanguage, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadScheduledImportConfig, saveScheduledImportConfig, loadSourceWatchConfig, loadApiConfig, loadPaperResearchConfig } from "@/lib/project-store"
+import { getLastProject, getRecentProjects, saveLastProject, loadLlmConfig, loadLanguage, loadSearchApiConfig, loadEmbeddingConfig, loadMultimodalConfig, loadOutputLanguage, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadScheduledImportConfig, saveScheduledImportConfig, loadSourceWatchConfig, loadApiConfig, loadPaperResearchConfig, loadPaperMonitorConfig } from "@/lib/project-store"
 import { loadReviewItems, loadChatHistory } from "@/lib/persist"
 import { setupAutoSave } from "@/lib/auto-save"
 import { startClipWatcher } from "@/lib/clip-watcher"
 import { loadWechatImportConfig } from "@/lib/project-store"
 import { AppLayout } from "@/components/layout/app-layout"
+import { LogPanel } from "@/components/log-viewer"
 import { WelcomeScreen } from "@/components/project/welcome-screen"
 import { CreateProjectDialog } from "@/components/project/create-project-dialog"
 import type { WikiProject } from "@/types/wiki"
@@ -298,7 +299,8 @@ function App() {
     // Await this before starting file sync: watcher events for raw/sources
     // may enqueue ingest tasks and require an active project queue.
     try {
-      const { restoreQueue } = await import("@/lib/ingest-queue")
+      const { restoreQueue, initConcurrencyWatch } = await import("@/lib/ingest-queue")
+      initConcurrencyWatch()
       await restoreQueue(proj.id, proj.path)
     } catch (err) {
       console.error("Failed to restore ingest queue:", err)
@@ -355,6 +357,23 @@ function App() {
               console.error("Failed to start wechat import:", err)
             )
           }).catch(() => {})
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // Load and start paper monitor if enabled
+    try {
+      const savedMonitorConfig = await loadPaperMonitorConfig(proj.path)
+      if (savedMonitorConfig) {
+        useWikiStore.getState().setPaperMonitorConfig(savedMonitorConfig)
+        if (savedMonitorConfig.enabled) {
+          import("@/lib/paper-monitor").then(({ startPaperMonitor }) => {
+            startPaperMonitor(proj, savedMonitorConfig, useWikiStore.getState().llmConfig)
+          }).catch((err) =>
+            console.error("Failed to start paper monitor:", err)
+          )
         }
       }
     } catch {
@@ -446,9 +465,12 @@ function App() {
   }
 
   async function handleSwitchProject() {
-    // Stop scheduled import and wechat import before switching projects
+    // Stop scheduled import, paper monitor, and wechat import before switching projects
     import("@/lib/scheduled-import").then(({ stopScheduledImport }) => {
       stopScheduledImport()
+    }).catch(() => {})
+    import("@/lib/paper-monitor").then(({ stopPaperMonitor }) => {
+      stopPaperMonitor()
     }).catch(() => {})
     import("@/lib/wechat-import").then(({ stopImport }) => {
       stopImport()
@@ -491,6 +513,7 @@ function App() {
           onOpenChange={setShowCreateDialog}
           onCreated={handleProjectOpened}
         />
+        <LogPanel />
       </>
     )
   }
@@ -503,6 +526,7 @@ function App() {
         onOpenChange={setShowCreateDialog}
         onCreated={handleProjectOpened}
       />
+      <LogPanel />
     </>
   )
 }

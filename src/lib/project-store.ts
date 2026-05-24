@@ -1,6 +1,7 @@
 import { load } from "@tauri-apps/plugin-store"
 import type { WikiProject } from "@/types/wiki"
-import type { ApiConfig, LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, PaperResearchConfig, ProviderConfigs, ProxyConfig, ScheduledImportConfig, SourceWatchConfig, WechatImportConfig } from "@/stores/wiki-store"
+import type { ApiConfig, LlmConfig, PaperMonitorConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, PaperResearchConfig, ProviderConfigs, ProxyConfig, ScheduledImportConfig, SourceWatchConfig, WechatImportConfig } from "@/stores/wiki-store"
+import { loadPaperMonitorConfig as loadPaperMonitorConfigFromFile, savePaperMonitorConfig as savePaperMonitorConfigToFile } from "@/lib/paper-monitor"
 import { normalizeSourceWatchConfig } from "@/lib/source-watch-config"
 import { normalizePath } from "@/lib/path-utils"
 
@@ -322,6 +323,16 @@ export async function loadSourceWatchConfig(projectId?: string): Promise<SourceW
 
   const legacyEnabled = await loadProjectFileSyncEnabled(projectId)
   return normalizeSourceWatchConfig({ enabled: legacyEnabled })
+}
+
+// ── Paper monitor config ────────────────────────────────────────────────
+
+export async function savePaperMonitorConfig(config: PaperMonitorConfig, projectPath: string): Promise<void> {
+  await savePaperMonitorConfigToFile(projectPath, config)
+}
+
+export async function loadPaperMonitorConfig(projectPath: string): Promise<PaperMonitorConfig | null> {
+  return loadPaperMonitorConfigFromFile(projectPath)
 }
 
 // ── Wechat import config ──────────────────────────────────────────────────

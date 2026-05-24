@@ -1,11 +1,25 @@
 import { readFile, writeFile } from "@/commands/fs"
 import { autoIngest } from "./ingest"
 import { useWikiStore } from "@/stores/wiki-store"
-import { normalizePath, isAbsolutePath } from "@/lib/path-utils"
+import { normalizePath, isAbsolutePath, getFileName } from "@/lib/path-utils"
 import { getProjectPathById } from "@/lib/project-identity"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
+import { addLog } from "@/stores/log-store"
 
 const IMAGE_QUEUE_EXTS = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp"])
+
+let _concurrencyWatchInstalled = false
+
+/** Deferred from module top-level to avoid circular-dependency init crash. */
+export function initConcurrencyWatch() {
+  if (_concurrencyWatchInstalled) return
+  _concurrencyWatchInstalled = true
+  useWikiStore.subscribe((state, prev) => {
+    if (state.ingestConcurrency !== prev.ingestConcurrency && currentProjectId) {
+      fillPipeline(currentProjectId)
+    }
+  })
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -26,6 +40,9 @@ export interface IngestTask {
 // ── State ─────────────────────────────────────────────────────────────────
 
 let queue: IngestTask[] = []
+/** Total tasks enqueued this session. Resets on project switch /
+ *  app restart. Used by the UI to show "pending / sessionTotal". */
+let sessionTotalEnqueued = 0
 /** Active (in-flight) tasks. Size bounded by the configured
  *  `ingestConcurrency`. Each entry tracks its own abort controller
  *  and written-files list so cancellation and cleanup are per-task. */
@@ -40,8 +57,22 @@ function activeCount(): number {
   return activeTasks.size
 }
 
+function processingCount(): number {
+  return queue.filter((t) => t.status === "processing").length
+}
+
 function maxConcurrency(): number {
   return Math.max(1, useWikiStore.getState().ingestConcurrency ?? 1)
+}
+
+/** Fill the pipeline by starting tasks until we reach the concurrency
+ *  limit or run out of pending tasks. Safe to call multiple times. */
+function fillPipeline(projectId: string): void {
+  while (processingCount() < maxConcurrency()) {
+    const pending = queue.find((t) => t.projectId === projectId && t.status === "pending")
+    if (!pending) break
+    processNext(projectId)
+  }
 }
 
 /** UUID of the currently-active project. Used as a stale-context guard
@@ -205,9 +236,10 @@ export async function enqueueIngest(
   }
 
   const id = upsertQueuedIngestTask(projectId, sourcePath, folderContext)
+  sessionTotalEnqueued++
   await saveQueue(currentProjectPath)
 
-  processNext(currentProjectId)
+  fillPipeline(currentProjectId)
 
   return id
 }
@@ -231,9 +263,10 @@ export async function enqueueBatch(
     ids.push(upsertQueuedIngestTask(projectId, file.sourcePath, file.folderContext))
   }
 
+  sessionTotalEnqueued += files.length
   await saveQueue(currentProjectPath)
   console.log(`[Ingest Queue] Enqueued ${files.length} files`)
-  processNext(currentProjectId)
+  fillPipeline(currentProjectId)
 
   return ids
 }
@@ -250,7 +283,7 @@ export async function retryTask(taskId: string): Promise<void> {
   task.status = "pending"
   task.error = null
   await saveQueue(currentProjectPath)
-  processNext(currentProjectId)
+  fillPipeline(currentProjectId)
 }
 
 /**
@@ -279,7 +312,7 @@ export async function cancelTask(taskId: string): Promise<void> {
   await saveQueue(currentProjectPath)
   console.log(`[Ingest Queue] Cancelled: ${task.sourcePath}`)
 
-  processNext(currentProjectId)
+  fillPipeline(currentProjectId)
 }
 
 /**
@@ -327,12 +360,13 @@ export function getQueue(): readonly IngestTask[] {
 /**
  * Get queue summary.
  */
-export function getQueueSummary(): { pending: number; processing: number; failed: number; total: number } {
+export function getQueueSummary(): { pending: number; processing: number; failed: number; total: number; sessionTotal: number } {
   return {
     pending: queue.filter((t) => t.status === "pending").length,
     processing: activeCount(),
     failed: queue.filter((t) => t.status === "failed").length,
     total: queue.length,
+    sessionTotal: sessionTotalEnqueued,
   }
 }
 
@@ -450,7 +484,7 @@ export async function restoreQueue(
 
   if (pending > 0 || restored > 0) {
     console.log(`[Ingest Queue] Restored: ${pending} pending, ${failed} failed, ${restored} resumed from interrupted`)
-    processNext(projectId)
+    fillPipeline(projectId)
   }
 }
 
@@ -482,7 +516,7 @@ async function onQueueDrained(projectId: string, projectPath: string): Promise<v
 
 async function processNext(projectId: string): Promise<void> {
   // Concurrency gate: don't exceed the configured limit.
-  if (activeCount() >= maxConcurrency()) return
+  if (processingCount() >= maxConcurrency()) return
   // Stale-context guard: processNext may be invoked by an orphaned
   // recursion from a previous project. If we're no longer active, bail.
   if (currentProjectId !== projectId) return
@@ -490,7 +524,7 @@ async function processNext(projectId: string): Promise<void> {
   const next = queue.find((t) => t.projectId === projectId && t.status === "pending")
   if (!next) {
     // Queue drained — trigger review cleanup only when nothing is in flight
-    if (activeCount() === 0) {
+    if (processingCount() === 0) {
       const pathAtDrain = currentProjectPath
       onQueueDrained(projectId, pathAtDrain).catch((err) =>
         console.error("[Ingest Queue] sweep failed:", err)
@@ -498,6 +532,10 @@ async function processNext(projectId: string): Promise<void> {
     }
     return
   }
+
+  // Mark as processing immediately so fillPipeline's loop respects
+  // the concurrency limit correctly (before any async gap).
+  next.status = "processing"
 
   // Look up the project's current filesystem path from the registry —
   // it may have moved since the task was enqueued. If the project isn't
@@ -512,17 +550,15 @@ async function processNext(projectId: string): Promise<void> {
     next.status = "failed"
     next.error = "Project not found in registry (was it deleted?)"
     await saveQueue(currentProjectPath)
-    processNext(projectId)
+    fillPipeline(projectId)
     return
   }
 
-  next.status = "processing"
   await saveQueue(pp)
   if (currentProjectId !== projectId) return
 
   const llmConfig = useWikiStore.getState().llmConfig
 
-  // Check if LLM is configured (image-only tasks skip — use vision model)
   const isImageTask = (() => {
     const ext = next.sourcePath.split(".").pop()?.toLowerCase() ?? ""
     return IMAGE_QUEUE_EXTS.has(ext)
@@ -531,7 +567,7 @@ async function processNext(projectId: string): Promise<void> {
     next.status = "failed"
     next.error = "LLM not configured — set API key in Settings"
     await saveQueue(pp)
-    processNext(projectId)
+    fillPipeline(projectId)
     return
   }
 
@@ -540,7 +576,7 @@ async function processNext(projectId: string): Promise<void> {
     : `${pp}/${next.sourcePath}`
 
   const pendingCount = queue.filter((t) => t.projectId === projectId && t.status === "pending").length
-  console.log(`[Ingest Queue] Processing: ${next.sourcePath} (${pendingCount} remaining, ${activeCount() + 1}/${maxConcurrency()} active)`)
+  console.log(`[Ingest Queue] Processing: ${next.sourcePath} (${pendingCount} remaining, ${processingCount()}/${maxConcurrency()} active)`)
 
   // Register this task as active before starting work.
   const abortController = new AbortController()
@@ -568,6 +604,7 @@ async function processNext(projectId: string): Promise<void> {
     await saveQueue(pp)
 
     console.log(`[Ingest Queue] Done: ${next.sourcePath}`)
+    addLog("分析完成", `文件: ${getFileName(next.sourcePath)}`)
   } catch (err) {
     if (currentProjectId !== projectId) return
     const message = err instanceof Error ? err.message : String(err)
@@ -577,6 +614,7 @@ async function processNext(projectId: string): Promise<void> {
     if (next.retryCount >= MAX_RETRIES) {
       next.status = "failed"
       console.log(`[Ingest Queue] Failed (${next.retryCount}x): ${next.sourcePath} — ${message}`)
+      addLog("分析失败", `文件: ${getFileName(next.sourcePath)}\n错误: ${message}`)
     } else {
       next.status = "pending" // will retry
       console.log(`[Ingest Queue] Error (retry ${next.retryCount}/${MAX_RETRIES}): ${next.sourcePath} — ${message}`)
@@ -588,6 +626,6 @@ async function processNext(projectId: string): Promise<void> {
     activeTasks.delete(next.id)
   }
 
-  // Try to start more tasks (up to the concurrency limit).
-  processNext(projectId)
+  // Refill the pipeline up to the concurrency limit.
+  fillPipeline(projectId)
 }

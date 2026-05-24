@@ -499,7 +499,16 @@
   "activity": {
     "processing": "Processing: {{title}}",
     "done": "Done: {{title}}",
-    "clearCompleted": "Clear completed"
+    "clearCompleted": "Clear completed",
+    "analyzing": "{{count}} analyzing",
+    "queuedStatus": "{{pending}}/{{total}} queued",
+    "ingestStatusLabel": "Ingest: {{status}}",
+    "ingestQueueLabel": "Queued {{pending}}/{{total}} · Active {{active}}",
+    "ingestFailed": "{{count}} failed",
+    "ingestFailedTasks": "{{count}} failed tasks",
+    "fileSyncPending": "File sync: {{count}} pending",
+    "fileSyncFailed": "File sync: {{count}} failed",
+    "fileSyncError": "File sync failed"
   },
   "fileTree": {
     "noProject": "No project open"
@@ -588,6 +597,7 @@
     "noPapers": "No papers imported yet.",
     "noPapersHint": "Import PDFs or TeX files. The current ingest pipeline will extract content and write wiki pages.",
     "analyze": "Analyze",
+    "uncategorized": "Analysis Collection",
     "settingsTitle": "Paper Research Platform",
     "settingsDescription": "Configure paper research and PDF analysis. Statistics, graph, and search continue to use the current project features.",
     "settingsAutoAnalyze": "Analyze papers automatically after import",
@@ -597,7 +607,48 @@
     "settingsDestinationSources": "raw/sources (current project sources)",
     "settingsImportDestinationHelp": "Choose where collected and imported papers are stored. The panel list and analysis source root follow this setting.",
     "settingsQueryCount": "Literature query count",
-    "settingsQueryCountHelp": "How many search queries to derive from the research topic."
+    "settingsQueryCountHelp": "How many search queries to derive from the research topic.",
+    "monitor": {
+      "title": "Daily Paper Monitor",
+      "description": "Automatically scan for new papers based on configured topics and sources every day.",
+      "enable": "Enable daily paper monitoring",
+      "enableHelp": "Automatically search for new papers from configured sources every 24 hours.",
+      "topics": "Monitored Topics",
+      "topicPlaceholder": "Enter a research topic or query...",
+      "addTopic": "Add",
+      "recommend": "Recommend",
+      "recommendations": "Recommended topics",
+      "recommendEmpty": "The LLM returned no recommendations. Try a more specific topic.",
+      "recommendError": "Failed to get recommendations. Check your LLM configuration.",
+      "add": "Add",
+      "noTopics": "No topics configured. Add at least one topic to start monitoring.",
+      "sources": "Monitor Sources",
+      "sourceArxiv": "arXiv",
+      "sourceOpenAlex": "OpenAlex",
+      "sourceCrossref": "Crossref",
+      "maxDaily": "Max papers per day",
+      "maxDailyHelp": "Maximum number of papers to collect across all topics daily.",
+      "autoPush": "Auto-push to knowledge base",
+      "autoPushHelp": "When enabled, discovered papers are automatically pushed to the wiki knowledge base. Disable to review and push manually.",
+      "scheduledTime": "Daily scan time",
+      "scheduledTimeHelp": "The scan runs once per day at this time.",
+      "scanNow": "Scan Now",
+      "scanning": "Scanning...",
+      "imported": "Imported",
+      "noScansYet": "No scans yet. Click \"Scan Now\" to run your first scan.",
+      "dailyResults": "Daily Monitoring Results",
+      "scanCount": "{{count}} scan(s)",
+      "paperCount": "{{count}} paper(s)",
+      "noPapersFound": "No papers found in this scan.",
+      "pushToWiki": "Push to Wiki",
+      "topicsLabel": "Topics"
+    }
+  },
+  "log": {
+    "title": "Logs",
+    "panelTitle": "System Logs",
+    "empty": "No logs yet",
+    "clearAll": "Clear all"
   },
   "wechat": {
     "panelTitle": "File Transfer",

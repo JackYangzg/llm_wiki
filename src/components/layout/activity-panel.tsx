@@ -4,6 +4,7 @@ import {
   FileText, Users, Lightbulb, BookOpen, GitMerge, BarChart3, HelpCircle, Layout,
   RotateCcw, X, Clock,
 } from "lucide-react"
+import { useTranslation } from "react-i18next"
 import { useActivityStore, type ActivityItem } from "@/stores/activity-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useFileSyncStore } from "@/stores/file-sync-store"
@@ -37,6 +38,7 @@ function getFileTypeInfo(path: string): { icon: typeof FileText; type: string } 
 }
 
 export function ActivityPanel() {
+  const { t } = useTranslation()
   const items = useActivityStore((s) => s.items)
   const clearDone = useActivityStore((s) => s.clearDone)
   const project = useWikiStore((s) => s.project)
@@ -141,19 +143,22 @@ export function ActivityPanel() {
   // Build status text
   let statusText = ""
   if (queueSummary.processing > 0 || queueSummary.pending > 0) {
-    const done = queueSummary.total - queueSummary.pending - queueSummary.processing
-    statusText = `Queue: ${done}/${queueSummary.total}`
-    if (queueSummary.failed > 0) statusText += ` (${queueSummary.failed} failed)`
+    const displayTotal = queueSummary.sessionTotal > 0 ? queueSummary.sessionTotal : queueSummary.total
+    const parts: string[] = []
+    if (queueSummary.processing > 0) parts.push(t("activity.analyzing", { count: queueSummary.processing }))
+    parts.push(t("activity.queuedStatus", { pending: queueSummary.pending, total: displayTotal }))
+    statusText = t("activity.ingestStatusLabel", { status: parts.join(", ") })
+    if (queueSummary.failed > 0) statusText += ` (${t("activity.ingestFailed", { count: queueSummary.failed })})`
   } else if (runningCount > 0) {
     statusText = `Processing: ${latestItem?.title ?? "..."}`
   } else if (queueSummary.failed > 0) {
-    statusText = `${queueSummary.failed} failed task${queueSummary.failed > 1 ? "s" : ""}`
+    statusText = t("activity.ingestFailedTasks", { count: queueSummary.failed })
   } else if (fileSyncProcessing > 0 || fileSyncPending > 0) {
-    statusText = `File sync: ${fileSyncProcessing + fileSyncPending} pending`
+    statusText = t("activity.fileSyncPending", { count: fileSyncProcessing + fileSyncPending })
   } else if (fileSyncFailed > 0) {
-    statusText = `File sync: ${fileSyncFailed} failed`
+    statusText = t("activity.fileSyncFailed", { count: fileSyncFailed })
   } else if (fileSyncError) {
-    statusText = "File sync failed"
+    statusText = t("activity.fileSyncError")
   } else {
     statusText = `Done: ${latestItem?.title ?? "All tasks complete"}`
   }
@@ -215,7 +220,7 @@ export function ActivityPanel() {
               <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1 gap-2">
                 <span>Ingest Queue</span>
                 <span className="flex-1 text-right">
-                  {queueSummary.total - queueSummary.pending - queueSummary.processing}/{queueSummary.total} complete
+                  {t("activity.ingestQueueLabel", { pending: queueSummary.pending, total: queueSummary.total, active: queueSummary.processing })}
                 </span>
                 {queueSummary.pending + queueSummary.processing >= 2 && (
                   <button
@@ -247,8 +252,12 @@ export function ActivityPanel() {
             <QueueRow key={task.id} task={task} onRetry={handleIngestRetry} onCancel={handleIngestCancel} />
           ))}
 
-          {/* Activity items */}
-          {items.map((item) => {
+          {/* Activity items — running first */}
+          {[...items].sort((a, b) => {
+            if (a.status === "running" && b.status !== "running") return -1
+            if (a.status !== "running" && b.status === "running") return 1
+            return 0
+          }).map((item) => {
             // Find matching queue task for cancel button
             const matchingTask = item.status === "running"
               ? queueTasks.find((t) => t.status === "processing" && getFileName(t.sourcePath) === item.title)
