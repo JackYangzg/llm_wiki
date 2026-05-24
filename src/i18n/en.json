@@ -11,6 +11,7 @@
     "lint": "Lint",
     "review": "Review",
     "aiResearch": "Paper Research Platform",
+    "inspiration": "Inspiration",
     "settings": "Settings",
     "switchProject": "Switch Project",
     "updateAvailable": "Update available",
@@ -30,6 +31,9 @@
   "sidebar": {
     "knowledge": "Knowledge",
     "files": "Files"
+  },
+  "common": {
+    "cancel": "Cancel"
   },
   "project": {
     "createTitle": "Create New Wiki Project",
@@ -125,6 +129,116 @@
     "noResults": "No results found",
     "startSearching": "Type to search wiki pages"
   },
+  "inspiration": {
+    "title": "Inspiration",
+    "subtitle": "Idea Factory, Theme Lab, Dream Lab, and Creative Outcomes evolve independently.",
+    "latestRun": "Latest run: {{runType}} / {{status}} / {{time}}",
+    "tabs": {
+      "factory": "Idea Factory",
+      "themeLab": "Theme Lab",
+      "dreamLab": "Dream Lab",
+      "outcomes": "Creative Outcomes"
+    },
+    "factory": {
+      "description": "The idea factory combines existing knowledge and existing ideas to produce a small set of ideas worth evolving.",
+      "build": "Build Idea Factory"
+    },
+    "themeLab": {
+      "placeholder": "Enter an idea direction; leave blank to explore existing themes",
+      "explore": "Explore",
+      "stockExplorationTopic": "Deep exploration of existing themes"
+    },
+    "dreamLab": {
+      "description": "Dreams deepen ideas from the factory or theme lab. Commentary can add expansion or rebuild requests.",
+      "start": "Start Dreaming",
+      "pickSeeds": "Choose one or more dream seeds",
+      "startDream": "Start Dream"
+    },
+    "actions": {
+      "iterate": "Iterate",
+      "like": "Like",
+      "unlike": "Unlike",
+      "save": "Save",
+      "unsave": "Unsave",
+      "promote": "Adopt as creative outcome",
+      "unpromote": "Undo adoption",
+      "dislike": "Dislike",
+      "undislike": "Remove dislike",
+      "reject": "Reject",
+      "deepResearch": "Send to Deep Research"
+    },
+    "comments": {
+      "placeholder": "Add commentary for future evolution...",
+      "dreamPlaceholder": "Add dream expansion notes or rebuild requests...",
+      "submit": "Comment"
+    },
+    "itemTypes": {
+      "theme": "Theme",
+      "idea": "Idea",
+      "dream": "Dream"
+    },
+    "reviewState": {
+      "new": "New",
+      "saved": "Saved",
+      "formal": "Adopted",
+      "rejected": "Rejected"
+    },
+    "stage": {
+      "seed": "Seed",
+      "candidate": "Candidate",
+      "incubating": "Incubating",
+      "validated": "Validated",
+      "mature": "Mature",
+      "adopted": "Adopted",
+      "archived": "Archived"
+    },
+    "card": {
+      "score": "score",
+      "groundedness": "Evidence",
+      "novelty": "Novelty",
+      "goalFit": "Fit",
+      "actionability": "Action",
+      "diversity": "Diversity",
+      "entered": "Entered",
+      "updated": "Updated",
+      "iterations": "{{count}} iterations",
+      "version": "v{{version}}",
+      "maturity": "Maturity L{{level}}",
+      "task": "Task {{task}}",
+      "status": "Status",
+      "dreamIterations": "Dream {{count}}/3",
+      "dreamMode": "Mode",
+      "fragments": "{{count}} fragments",
+      "dreamScore": "Dream score"
+    },
+    "dreamModes": {
+      "free_association": "Free association",
+      "future": "Future projection",
+      "counterfactual": "Counterfactual",
+      "metaphor": "Metaphor",
+      "conflict": "Conflict",
+      "roleplay": "Roleplay",
+      "gap_fill": "Gap fill",
+      "solution_evolution": "Solution evolution"
+    },
+    "metrics": {
+      "adopted": "Adopted",
+      "saved": "Saved",
+      "liked": "Liked",
+      "disliked": "Disliked"
+    },
+    "status": {
+      "exploring": "Exploring",
+      "evolving": "Evolving",
+      "done": "Done",
+      "error": "Error"
+    },
+    "empty": {
+      "module": "This module is empty. Start its build first.",
+      "outcomes": "No adopted creative outcomes yet."
+    },
+    "runningCurrent": "Current module task: {{status}}"
+  },
   "lint": {
     "title": "Wiki Lint",
     "semantic": "Semantic (LLM)",
@@ -189,6 +303,7 @@
       "network": "Network",
       "sourceWatch": "Source Watch",
       "scheduledImport": "Scheduled Import",
+      "inspiration": "Inspiration",
       "apiServer": "API Server",
       "aiResearch": "Paper Research Platform",
       "output": "Output",

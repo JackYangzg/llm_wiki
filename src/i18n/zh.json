@@ -11,6 +11,7 @@
     "lint": "检查",
     "review": "待审阅",
     "aiResearch": "论文研究平台",
+    "inspiration": "灵思妙想",
     "settings": "设置",
     "switchProject": "切换项目",
     "updateAvailable": "有可用更新",
@@ -30,6 +31,9 @@
   "sidebar": {
     "knowledge": "知识库",
     "files": "文件"
+  },
+  "common": {
+    "cancel": "取消"
   },
   "project": {
     "createTitle": "新建 Wiki 项目",
@@ -125,6 +129,116 @@
     "noResults": "未找到相关结果",
     "startSearching": "输入关键词搜索 Wiki 页面"
   },
+  "inspiration": {
+    "title": "灵思妙想",
+    "subtitle": "点子工厂、主题实验室、梦境与创意成果各自独立演进。",
+    "latestRun": "最近运行：{{runType}} / {{status}} / {{time}}",
+    "tabs": {
+      "factory": "点子工厂",
+      "themeLab": "主题实验室",
+      "dreamLab": "梦境实验室",
+      "outcomes": "创意成果"
+    },
+    "factory": {
+      "description": "点子工厂会结合已有知识和已有点子，生成少量值得持续演进的 idea。",
+      "build": "点子工厂构建"
+    },
+    "themeLab": {
+      "placeholder": "输入要探索的点子方向；留空则探索存量主题",
+      "explore": "探索",
+      "stockExplorationTopic": "存量主题深度探索"
+    },
+    "dreamLab": {
+      "description": "梦境会从点子工厂或主题实验室选择点子深挖，也可用点评补充再造要求。",
+      "start": "启动做梦",
+      "pickSeeds": "选择一个或多个造梦起点",
+      "startDream": "开始造梦"
+    },
+    "actions": {
+      "iterate": "手动迭代",
+      "like": "喜欢",
+      "unlike": "取消喜欢",
+      "save": "收藏",
+      "unsave": "取消收藏",
+      "promote": "采纳为创意成果",
+      "unpromote": "取消采纳",
+      "dislike": "不喜欢",
+      "undislike": "取消不喜欢",
+      "reject": "驳回",
+      "deepResearch": "投递 Deep Research"
+    },
+    "comments": {
+      "placeholder": "写点评，作为后续演进依据...",
+      "dreamPlaceholder": "补充梦境扩充信息或再造要求...",
+      "submit": "点评"
+    },
+    "itemTypes": {
+      "theme": "主题",
+      "idea": "Idea",
+      "dream": "梦境"
+    },
+    "reviewState": {
+      "new": "新建",
+      "saved": "已收藏",
+      "formal": "已采纳",
+      "rejected": "已驳回"
+    },
+    "stage": {
+      "seed": "种子",
+      "candidate": "候选",
+      "incubating": "孵化",
+      "validated": "验证",
+      "mature": "成熟",
+      "adopted": "采纳",
+      "archived": "归档"
+    },
+    "card": {
+      "score": "评分",
+      "groundedness": "证据",
+      "novelty": "新颖",
+      "goalFit": "契合",
+      "actionability": "行动",
+      "diversity": "多样",
+      "entered": "进入",
+      "updated": "更新",
+      "iterations": "迭代 {{count}} 次",
+      "version": "版本 v{{version}}",
+      "maturity": "成熟度 L{{level}}",
+      "task": "任务 {{task}}",
+      "status": "状态",
+      "dreamIterations": "做梦 {{count}}/3",
+      "dreamMode": "模式",
+      "fragments": "片段 {{count}}",
+      "dreamScore": "梦分"
+    },
+    "dreamModes": {
+      "free_association": "自由联想",
+      "future": "未来推演",
+      "counterfactual": "反事实",
+      "metaphor": "隐喻转换",
+      "conflict": "冲突梦",
+      "roleplay": "角色扮演",
+      "gap_fill": "空白补全",
+      "solution_evolution": "方案演化"
+    },
+    "metrics": {
+      "adopted": "采纳",
+      "saved": "收藏",
+      "liked": "喜欢",
+      "disliked": "不喜欢"
+    },
+    "status": {
+      "exploring": "探索中",
+      "evolving": "迭代中",
+      "done": "已完成",
+      "error": "出错"
+    },
+    "empty": {
+      "module": "当前模块还没有内容，先启动对应构建。",
+      "outcomes": "还没有采纳的创意成果。"
+    },
+    "runningCurrent": "正在运行当前模块任务：{{status}}"
+  },
   "lint": {
     "title": "Wiki 检查",
     "semantic": "语义检查 (LLM)",
@@ -189,6 +303,7 @@
       "network": "网络",
       "sourceWatch": "资料文件夹监控",
       "scheduledImport": "定时导入",
+      "inspiration": "灵思妙想",
       "apiServer": "API 服务",
       "aiResearch": "论文研究平台",
       "output": "输出偏好",

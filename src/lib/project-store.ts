@@ -1,6 +1,6 @@
 import { load } from "@tauri-apps/plugin-store"
 import type { WikiProject } from "@/types/wiki"
-import type { ApiConfig, LlmConfig, PaperMonitorConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, PaperResearchConfig, ProviderConfigs, ProxyConfig, ScheduledImportConfig, SourceWatchConfig, WechatImportConfig } from "@/stores/wiki-store"
+import type { ApiConfig, LlmConfig, PaperMonitorConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, PaperResearchConfig, ProviderConfigs, ProxyConfig, ScheduledImportConfig, InspirationConfig, SourceWatchConfig, WechatImportConfig } from "@/stores/wiki-store"
 import { loadPaperMonitorConfig as loadPaperMonitorConfigFromFile, savePaperMonitorConfig as savePaperMonitorConfigToFile } from "@/lib/paper-monitor"
 import { normalizeSourceWatchConfig } from "@/lib/source-watch-config"
 import { normalizePath } from "@/lib/path-utils"
@@ -100,6 +100,7 @@ export async function loadEmbeddingConfig(): Promise<EmbeddingConfig | null> {
 }
 
 const MULTIMODAL_KEY = "multimodalConfig"
+const INGEST_CONCURRENCY_KEY = "ingestConcurrency"
 
 export async function saveMultimodalConfig(config: MultimodalConfig): Promise<void> {
   const store = await getStore()
@@ -109,6 +110,20 @@ export async function saveMultimodalConfig(config: MultimodalConfig): Promise<vo
 export async function loadMultimodalConfig(): Promise<MultimodalConfig | null> {
   const store = await getStore()
   return (await store.get<MultimodalConfig>(MULTIMODAL_KEY)) ?? null
+}
+
+export async function saveIngestConcurrency(value: number): Promise<void> {
+  const store = await getStore()
+  await store.set(INGEST_CONCURRENCY_KEY, Math.max(1, Math.min(8, Math.floor(value || 1))))
+  await store.save()
+}
+
+export async function loadIngestConcurrency(): Promise<number | null> {
+  const store = await getStore()
+  const value = await store.get<number>(INGEST_CONCURRENCY_KEY)
+  return typeof value === "number"
+    ? Math.max(1, Math.min(8, Math.floor(value || 1)))
+    : null
 }
 
 // IMPORTANT: Keep this key in sync with the Rust setup hook
@@ -224,6 +239,72 @@ export async function loadScheduledImportConfig(projectPath: string): Promise<Sc
     return legacy
   }
   return null
+}
+
+const INSPIRATION_CONFIG_KEY_PREFIX = "inspirationConfig:"
+
+function inspirationConfigKey(projectPath: string): string {
+  return `${INSPIRATION_CONFIG_KEY_PREFIX}${normalizePath(projectPath)}`
+}
+
+export const DEFAULT_INSPIRATION_CONFIG: InspirationConfig = {
+  enabled: false,
+  runOnStartup: false,
+  dailyEnabled: false,
+  dailyTime: "09:00",
+  ideasPath: "wiki/ideas",
+  continuousEvolutionEnabled: false,
+  evolutionIntervalMinutes: 120,
+  autoDeepResearchEnabled: false,
+  dreamMinDurationMinutes: 60,
+  dreamStepIntervalMinutes: 5,
+}
+
+function normalizeInspirationConfig(config: Partial<InspirationConfig> | null | undefined): InspirationConfig {
+  const dailyTime = typeof config?.dailyTime === "string" && /^\d{2}:\d{2}$/.test(config.dailyTime)
+    ? config.dailyTime
+    : DEFAULT_INSPIRATION_CONFIG.dailyTime
+  return {
+    enabled: typeof config?.enabled === "boolean" ? config.enabled : DEFAULT_INSPIRATION_CONFIG.enabled,
+    runOnStartup: typeof config?.runOnStartup === "boolean" ? config.runOnStartup : DEFAULT_INSPIRATION_CONFIG.runOnStartup,
+    dailyEnabled: typeof config?.dailyEnabled === "boolean" ? config.dailyEnabled : DEFAULT_INSPIRATION_CONFIG.dailyEnabled,
+    dailyTime,
+    ideasPath: typeof config?.ideasPath === "string" && config.ideasPath.trim()
+      ? normalizePath(config.ideasPath.trim()).replace(/^\/+/, "")
+      : DEFAULT_INSPIRATION_CONFIG.ideasPath,
+    continuousEvolutionEnabled:
+      typeof config?.continuousEvolutionEnabled === "boolean"
+        ? config.continuousEvolutionEnabled
+        : DEFAULT_INSPIRATION_CONFIG.continuousEvolutionEnabled,
+    evolutionIntervalMinutes:
+      typeof config?.evolutionIntervalMinutes === "number"
+        ? Math.max(5, Math.min(1440, config.evolutionIntervalMinutes))
+        : DEFAULT_INSPIRATION_CONFIG.evolutionIntervalMinutes,
+    autoDeepResearchEnabled:
+      typeof config?.autoDeepResearchEnabled === "boolean"
+        ? config.autoDeepResearchEnabled
+        : DEFAULT_INSPIRATION_CONFIG.autoDeepResearchEnabled,
+    dreamMinDurationMinutes:
+      typeof config?.dreamMinDurationMinutes === "number"
+        ? Math.max(60, Math.min(1440, config.dreamMinDurationMinutes))
+        : DEFAULT_INSPIRATION_CONFIG.dreamMinDurationMinutes,
+    dreamStepIntervalMinutes:
+      typeof config?.dreamStepIntervalMinutes === "number"
+        ? Math.max(1, Math.min(120, config.dreamStepIntervalMinutes))
+        : DEFAULT_INSPIRATION_CONFIG.dreamStepIntervalMinutes,
+  }
+}
+
+export async function saveInspirationConfig(projectPath: string, config: InspirationConfig): Promise<void> {
+  const store = await getStore()
+  await store.set(inspirationConfigKey(projectPath), normalizeInspirationConfig(config))
+  await store.save()
+}
+
+export async function loadInspirationConfig(projectPath: string): Promise<InspirationConfig | null> {
+  const store = await getStore()
+  const perProject = await store.get<Partial<InspirationConfig>>(inspirationConfigKey(projectPath))
+  return perProject ? normalizeInspirationConfig(perProject) : null
 }
 
 export async function removeFromRecentProjects(

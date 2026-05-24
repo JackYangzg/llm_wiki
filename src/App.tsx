@@ -5,7 +5,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { useChatStore } from "@/stores/chat-store"
 import { listDirectory, openProject } from "@/commands/fs"
-import { getLastProject, getRecentProjects, saveLastProject, loadLlmConfig, loadLanguage, loadSearchApiConfig, loadEmbeddingConfig, loadMultimodalConfig, loadOutputLanguage, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadScheduledImportConfig, saveScheduledImportConfig, loadSourceWatchConfig, loadApiConfig, loadPaperResearchConfig, loadPaperMonitorConfig } from "@/lib/project-store"
+import { getLastProject, getRecentProjects, saveLastProject, loadLlmConfig, loadLanguage, loadSearchApiConfig, loadEmbeddingConfig, loadMultimodalConfig, loadIngestConcurrency, loadOutputLanguage, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadScheduledImportConfig, saveScheduledImportConfig, loadSourceWatchConfig, loadApiConfig, loadPaperResearchConfig, loadPaperMonitorConfig, loadInspirationConfig, DEFAULT_INSPIRATION_CONFIG } from "@/lib/project-store"
 import { loadReviewItems, loadChatHistory } from "@/lib/persist"
 import { setupAutoSave } from "@/lib/auto-save"
 import { startClipWatcher } from "@/lib/clip-watcher"
@@ -220,6 +220,10 @@ function App() {
         if (savedMultimodalConfig) {
           useWikiStore.getState().setMultimodalConfig(savedMultimodalConfig)
         }
+        const savedIngestConcurrency = await loadIngestConcurrency()
+        if (savedIngestConcurrency) {
+          useWikiStore.getState().setIngestConcurrency(savedIngestConcurrency)
+        }
         const savedProxy = await loadProxyConfig()
         if (savedProxy) {
           useWikiStore.getState().setProxyConfig(savedProxy)
@@ -346,6 +350,13 @@ function App() {
       )
     }
 
+    try {
+      const savedInspirationConfig = await loadInspirationConfig(proj.path)
+      useWikiStore.getState().setInspirationConfig(savedInspirationConfig ?? DEFAULT_INSPIRATION_CONFIG)
+    } catch {
+      useWikiStore.getState().setInspirationConfig(DEFAULT_INSPIRATION_CONFIG)
+    }
+
     // Load and start WeChat import if enabled
     try {
       const savedWechat = await loadWechatImportConfig()
@@ -438,6 +449,14 @@ function App() {
     } catch {
       // ignore, start fresh
     }
+
+    import("@/lib/scheduled-inspiration").then(({ startScheduledInspiration }) => {
+      startScheduledInspiration(
+        proj.path,
+        useWikiStore.getState().llmConfig,
+        useWikiStore.getState().inspirationConfig,
+      )
+    }).catch(() => {})
   }
 
   async function handleSelectRecent(proj: WikiProject) {

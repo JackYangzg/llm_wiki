@@ -60,6 +60,18 @@ export interface SettingsDraft {
   scheduledImportPath: string
   scheduledImportInterval: number // minutes
 
+  // Inspiration
+  inspirationEnabled: boolean
+  inspirationRunOnStartup: boolean
+  inspirationDailyEnabled: boolean
+  inspirationDailyTime: string
+  inspirationIdeasPath: string
+  inspirationContinuousEvolutionEnabled: boolean
+  inspirationEvolutionIntervalMinutes: number
+  inspirationAutoDeepResearchEnabled: boolean
+  inspirationDreamMinDurationMinutes: number
+  inspirationDreamStepIntervalMinutes: number
+
   // UI
   uiLanguage: string
 

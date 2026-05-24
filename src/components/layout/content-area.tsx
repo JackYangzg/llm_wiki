@@ -7,6 +7,7 @@ import { LintView } from "@/components/lint/lint-view"
 import { SearchView } from "@/components/search/search-view"
 import { GraphView } from "@/components/graph/graph-view"
 import { PaperResearchView } from "@/components/paper-research/paper-research-view"
+import { InspirationView } from "@/components/inspiration/inspiration-view"
 
 export function ContentArea() {
   const activeView = useWikiStore((s) => s.activeView)
@@ -26,6 +27,8 @@ export function ContentArea() {
       return <GraphView />
     case "ai-research":
       return <PaperResearchView />
+    case "inspiration":
+      return <InspirationView />
     default:
       return <ChatPanel />
   }

@@ -148,6 +148,19 @@ interface ScheduledImportConfig {
   lastScan: number | null // 上次扫描时间戳
 }
 
+interface InspirationConfig {
+  enabled: boolean
+  runOnStartup: boolean
+  dailyEnabled: boolean
+  dailyTime: string // HH:mm local time
+  ideasPath: string // relative to project root; default wiki/ideas
+  continuousEvolutionEnabled: boolean
+  evolutionIntervalMinutes: number
+  autoDeepResearchEnabled: boolean
+  dreamMinDurationMinutes: number
+  dreamStepIntervalMinutes: number
+}
+
 /**
  * Local HTTP API server config. Read by the Rust `api_server` module on
  * every request via `load_app_state` (5s cache). The Rust side is the
@@ -260,7 +273,7 @@ interface WikiState {
    */
   pendingScrollImageSrc: string | null
   chatExpanded: boolean
-  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "review" | "ai-research" | "settings"
+  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "review" | "ai-research" | "inspiration" | "settings"
   llmConfig: LlmConfig
   /** Per-provider-preset stored overrides (API key, model, endpoint, …). */
   providerConfigs: ProviderConfigs
@@ -274,6 +287,7 @@ interface WikiState {
   ingestConcurrency: number
   proxyConfig: ProxyConfig
   scheduledImportConfig: ScheduledImportConfig
+  inspirationConfig: InspirationConfig
   sourceWatchConfig: SourceWatchConfig
   apiConfig: ApiConfig
   paperResearchConfig: PaperResearchConfig
@@ -302,6 +316,7 @@ interface WikiState {
   setIngestConcurrency: (n: number) => void
   setProxyConfig: (config: ProxyConfig) => void
   setScheduledImportConfig: (config: ScheduledImportConfig) => void
+  setInspirationConfig: (config: InspirationConfig) => void
   setSourceWatchConfig: (config: SourceWatchConfig) => void
   setApiConfig: (config: ApiConfig) => void
   setPaperResearchConfig: (config: PaperResearchConfig) => void
@@ -396,6 +411,19 @@ export const useWikiStore = create<WikiState>((set) => ({
     lastScan: null,
   },
 
+  inspirationConfig: {
+    enabled: false,
+    runOnStartup: false,
+    dailyEnabled: false,
+    dailyTime: "09:00",
+    ideasPath: "wiki/ideas",
+    continuousEvolutionEnabled: false,
+    evolutionIntervalMinutes: 120,
+    autoDeepResearchEnabled: false,
+    dreamMinDurationMinutes: 60,
+    dreamStepIntervalMinutes: 5,
+  },
+
   sourceWatchConfig: DEFAULT_SOURCE_WATCH_CONFIG,
 
   // Default `enabled: true` preserves the pre-toggle behavior: anyone
@@ -429,6 +457,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   setIngestConcurrency: (ingestConcurrency) => set({ ingestConcurrency }),
   setProxyConfig: (proxyConfig) => set({ proxyConfig }),
   setScheduledImportConfig: (scheduledImportConfig) => set({ scheduledImportConfig }),
+  setInspirationConfig: (inspirationConfig) => set({ inspirationConfig }),
   setSourceWatchConfig: (sourceWatchConfig) => set({ sourceWatchConfig }),
   setApiConfig: (apiConfig) => set({ apiConfig }),
   setPaperResearchConfig: (paperResearchConfig) => set({ paperResearchConfig }),
@@ -453,4 +482,4 @@ export const useWikiStore = create<WikiState>((set) => ({
   bumpDataVersion: () => set((state) => ({ dataVersion: state.dataVersion + 1 })),
 }))
 
-export type { WikiState, LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, ProxyConfig, ScheduledImportConfig, SourceWatchConfig, ApiConfig, PaperResearchConfig, PaperMonitorConfig, WechatImportConfig }
+export type { WikiState, LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, ProxyConfig, ScheduledImportConfig, InspirationConfig, SourceWatchConfig, ApiConfig, PaperResearchConfig, PaperMonitorConfig, WechatImportConfig }

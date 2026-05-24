@@ -14,6 +14,7 @@ import {
   FolderSync,
   Server,
   Sparkles,
+  Lightbulb,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { invoke } from "@tauri-apps/api/core"
@@ -34,6 +35,7 @@ import { OutputSection } from "./sections/output-section"
 import { InterfaceSection } from "./sections/interface-section"
 import { NetworkSection } from "./sections/network-section"
 import { ScheduledImportSection } from "./sections/scheduled-import-section"
+import { InspirationSection } from "./sections/inspiration-section"
 import { SourceWatchSection } from "./sections/source-watch-section"
 import { ApiServerSection } from "./sections/api-server-section"
 import { PaperResearchSection } from "./sections/paper-research-section"
@@ -49,6 +51,7 @@ type CategoryId =
   | "network"
   | "source-watch"
   | "scheduled-import"
+  | "inspiration"
   | "api-server"
   | "ai-research"
   | "output"
@@ -74,6 +77,7 @@ const CATEGORIES: Category[] = [
   { id: "network", labelKey: "settings.categories.network", icon: Network },
   { id: "source-watch", labelKey: "settings.categories.sourceWatch", icon: FolderSync },
   { id: "scheduled-import", labelKey: "settings.categories.scheduledImport", icon: Clock },
+  { id: "inspiration", labelKey: "settings.categories.inspiration", icon: Lightbulb },
   { id: "api-server", labelKey: "settings.categories.apiServer", icon: Server },
   { id: "ai-research", labelKey: "settings.categories.aiResearch", icon: Sparkles },
   { id: "output", labelKey: "settings.categories.output", icon: Languages },
@@ -90,6 +94,7 @@ function initialDraft(
   outputLanguage: ReturnType<typeof useWikiStore.getState>["outputLanguage"],
   proxy: ReturnType<typeof useWikiStore.getState>["proxyConfig"],
   scheduledImport: ReturnType<typeof useWikiStore.getState>["scheduledImportConfig"],
+  inspiration: ReturnType<typeof useWikiStore.getState>["inspirationConfig"],
   sourceWatch: ReturnType<typeof useWikiStore.getState>["sourceWatchConfig"],
   apiConfig: ReturnType<typeof useWikiStore.getState>["apiConfig"],
   paperResearchConfig: ReturnType<typeof useWikiStore.getState>["paperResearchConfig"],
@@ -143,6 +148,16 @@ function initialDraft(
     scheduledImportEnabled: scheduledImport.enabled,
     scheduledImportPath: displayPath,
     scheduledImportInterval: scheduledImport.interval,
+    inspirationEnabled: inspiration.enabled,
+    inspirationRunOnStartup: inspiration.runOnStartup,
+    inspirationDailyEnabled: inspiration.dailyEnabled,
+    inspirationDailyTime: inspiration.dailyTime,
+    inspirationIdeasPath: inspiration.ideasPath,
+    inspirationContinuousEvolutionEnabled: inspiration.continuousEvolutionEnabled,
+    inspirationEvolutionIntervalMinutes: inspiration.evolutionIntervalMinutes,
+    inspirationAutoDeepResearchEnabled: inspiration.autoDeepResearchEnabled,
+    inspirationDreamMinDurationMinutes: inspiration.dreamMinDurationMinutes,
+    inspirationDreamStepIntervalMinutes: inspiration.dreamStepIntervalMinutes,
     sourceWatchConfig: normalizeSourceWatchConfig(sourceWatch),
     apiEnabled: apiConfig.enabled,
     apiAllowUnauthenticated: apiConfig.allowUnauthenticated,
@@ -176,6 +191,8 @@ export function SettingsView() {
   const setProxyConfig = useWikiStore((s) => s.setProxyConfig)
   const scheduledImportConfig = useWikiStore((s) => s.scheduledImportConfig)
   const setScheduledImportConfig = useWikiStore((s) => s.setScheduledImportConfig)
+  const inspirationConfig = useWikiStore((s) => s.inspirationConfig)
+  const setInspirationConfig = useWikiStore((s) => s.setInspirationConfig)
   const sourceWatchConfig = useWikiStore((s) => s.sourceWatchConfig)
   const setSourceWatchConfig = useWikiStore((s) => s.setSourceWatchConfig)
   const apiConfig = useWikiStore((s) => s.apiConfig)
@@ -208,6 +225,7 @@ export function SettingsView() {
       outputLanguage,
       proxyConfig,
       scheduledImportConfig,
+      inspirationConfig,
       sourceWatchConfig,
       apiConfig,
       paperResearchConfig,
@@ -254,6 +272,7 @@ export function SettingsView() {
         outputLanguage,
         proxyConfig,
         scheduledImportConfig,
+        inspirationConfig,
         sourceWatchConfig,
         apiConfig,
         paperResearchConfig,
@@ -271,6 +290,7 @@ export function SettingsView() {
     outputLanguage,
     proxyConfig,
     scheduledImportConfig,
+    inspirationConfig,
     sourceWatchConfig,
     apiConfig,
     paperResearchConfig,
@@ -289,9 +309,11 @@ export function SettingsView() {
       saveLlmConfig,
       saveEmbeddingConfig,
       saveMultimodalConfig,
+      saveIngestConcurrency,
       saveOutputLanguage,
       saveProxyConfig,
       saveScheduledImportConfig,
+      saveInspirationConfig,
       saveSourceWatchConfig,
       saveApiConfig,
       savePaperResearchConfig,
@@ -394,6 +416,25 @@ export function SettingsView() {
       }
     }
 
+    const newInspirationConfig = {
+      enabled: draft.inspirationEnabled,
+      runOnStartup: draft.inspirationRunOnStartup,
+      dailyEnabled: draft.inspirationDailyEnabled,
+      dailyTime: /^\d{2}:\d{2}$/.test(draft.inspirationDailyTime) ? draft.inspirationDailyTime : "09:00",
+      ideasPath: draft.inspirationIdeasPath.trim() || "wiki/ideas",
+      continuousEvolutionEnabled: draft.inspirationContinuousEvolutionEnabled,
+      evolutionIntervalMinutes: Math.max(5, Math.min(1440, draft.inspirationEvolutionIntervalMinutes || 120)),
+      autoDeepResearchEnabled: draft.inspirationAutoDeepResearchEnabled,
+      dreamMinDurationMinutes: Math.max(60, Math.min(1440, draft.inspirationDreamMinDurationMinutes || 60)),
+      dreamStepIntervalMinutes: Math.max(1, Math.min(120, draft.inspirationDreamStepIntervalMinutes || 5)),
+    }
+    setInspirationConfig(newInspirationConfig)
+    if (project) {
+      await saveInspirationConfig(project.path, newInspirationConfig)
+      const { startScheduledInspiration } = await import("@/lib/scheduled-inspiration")
+      startScheduledInspiration(project.path, newLlm, newInspirationConfig)
+    }
+
     setMaxHistoryMessages(draft.maxHistoryMessages)
 
     // ── API server: persist + push to store. The Rust side reads
@@ -443,6 +484,7 @@ export function SettingsView() {
     // Clamp ingest concurrency to 1–8
     const newIngestConcurrency = Math.max(1, Math.min(8, draft.ingestConcurrency || 1))
     setIngestConcurrency(newIngestConcurrency)
+    await saveIngestConcurrency(newIngestConcurrency)
 
     if (draft.uiLanguage !== i18n.language) {
       await i18n.changeLanguage(draft.uiLanguage)
@@ -459,6 +501,7 @@ export function SettingsView() {
     setOutputLanguage,
     setProxyConfig,
     setScheduledImportConfig,
+    setInspirationConfig,
     setSourceWatchConfig,
     setApiConfig,
     setPaperResearchConfig,
@@ -486,6 +529,8 @@ export function SettingsView() {
         return <SourceWatchSection draft={draft} setDraft={setDraft} projectReady={!!project} />
       case "scheduled-import":
         return <ScheduledImportSection draft={draft} setDraft={setDraft} />
+      case "inspiration":
+        return <InspirationSection draft={draft} setDraft={setDraft} />
       case "api-server":
         return <ApiServerSection draft={draft} setDraft={setDraft} />
       case "ai-research":

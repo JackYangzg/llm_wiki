@@ -27,9 +27,14 @@ fn create_project_impl(name: String, path: String) -> Result<WikiProject, String
         "wiki/entities",
         "wiki/concepts",
         "wiki/sources",
+        "wiki/ideas",
         "wiki/queries",
         "wiki/comparisons",
         "wiki/synthesis",
+        "wiki/inspirations/daily",
+        "wiki/inspirations/themes",
+        "wiki/inspirations/ideas",
+        "wiki/inspirations/dreams",
     ];
     for dir in &dirs {
         fs::create_dir_all(root.join(dir))
@@ -52,6 +57,9 @@ fn create_project_impl(name: String, path: String) -> Result<WikiProject, String
 | query | wiki/queries/ | Open questions under investigation |
 | comparison | wiki/comparisons/ | Side-by-side analysis of related entities |
 | synthesis | wiki/synthesis/ | Cross-cutting summaries and conclusions |
+| theme_digest | wiki/inspirations/daily/, wiki/inspirations/themes/ | Generated theme mining summaries |
+| idea_card | wiki/ideas/ | Evidence-grounded ideation cards |
+| dream_sequence | wiki/inspirations/dreams/ | Traceable associative graph-walk replays |
 
 ## Naming Conventions
 
@@ -67,7 +75,7 @@ All pages must include YAML frontmatter:
 
 ```yaml
 ---
-type: entity | concept | source | query | comparison | synthesis | overview
+type: entity | concept | source | query | comparison | synthesis | overview | theme_digest | idea_card | dream_sequence
 title: Human-readable title
 tags: []
 related: []
@@ -165,6 +173,10 @@ When sources contradict each other:
 ## Comparisons
 
 ## Synthesis
+
+## Ideas
+
+## Inspirations
 "#;
     write_file_inner(root.join("wiki/index.md"), index_content)?;
 

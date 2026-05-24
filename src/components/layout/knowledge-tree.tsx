@@ -26,9 +26,16 @@ const TYPE_CONFIG: Record<string, { icon: typeof FileText; label: string; color:
   synthesis:   { icon: GitMerge,    label: "Synthesis",    color: "text-red-500",    order: 4 },
   comparison:  { icon: BarChart3,   label: "Comparisons",  color: "text-emerald-500",order: 5 },
   query:       { icon: HelpCircle,  label: "Queries",      color: "text-green-500",  order: 6 },
+  idea:        { icon: Lightbulb,   label: "Ideas",        color: "text-pink-500",   order: 7 },
 }
 
 const DEFAULT_CONFIG = { icon: FileText, label: "Other", color: "text-muted-foreground", order: 99 }
+
+function normalizeKnowledgeType(type: string): string {
+  const normalized = type.trim().toLowerCase()
+  if (normalized === "idea_card" || normalized === "idea-seed" || normalized === "idea_seed") return "idea"
+  return TYPE_CONFIG[normalized] ? normalized : "other"
+}
 
 export function KnowledgeTree() {
   const project = useWikiStore((s) => s.project)
@@ -327,12 +334,13 @@ function parsePageInfo(path: string, fileName: string, content: string): WikiPag
     else if (path.includes("/concepts/")) type = "concept"
     else if (path.includes("/sources/")) type = "source"
     else if (path.includes("/queries/")) type = "query"
+    else if (path.includes("/ideas/")) type = "idea"
     else if (path.includes("/comparisons/")) type = "comparison"
     else if (path.includes("/synthesis/")) type = "synthesis"
     else if (fileName === "overview.md") type = "overview"
   }
 
-  return { path, title, type, tags, origin }
+  return { path, title, type: normalizeKnowledgeType(type), tags, origin }
 }
 
 /**
