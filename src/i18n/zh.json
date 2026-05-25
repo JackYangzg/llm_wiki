@@ -165,9 +165,15 @@
       "dislike": "不喜欢",
       "undislike": "取消不喜欢",
       "reject": "驳回",
-      "deepResearch": "投递 Deep Research"
+      "deepResearch": "投递 Deep Research",
+      "continueDream": "继续造梦迭代",
+      "concludeDream": "归纳梦境结论",
+      "evolutionGraph": "查看演进图谱",
+      "askAi": "AI 问一问"
     },
     "comments": {
+      "recent": "用户点评",
+      "more": "还有 {{count}} 条点评",
       "placeholder": "写点评，作为后续演进依据...",
       "dreamPlaceholder": "补充梦境扩充信息或再造要求...",
       "submit": "点评"
@@ -206,7 +212,7 @@
       "maturity": "成熟度 L{{level}}",
       "task": "任务 {{task}}",
       "status": "状态",
-      "dreamIterations": "做梦 {{count}}/3",
+      "dreamIterations": "做梦 {{count}}/{{max}}",
       "dreamMode": "模式",
       "fragments": "片段 {{count}}",
       "dreamScore": "梦分"
@@ -237,7 +243,42 @@
       "module": "当前模块还没有内容，先启动对应构建。",
       "outcomes": "还没有采纳的创意成果。"
     },
-    "runningCurrent": "正在运行当前模块任务：{{status}}"
+    "runningCurrent": "正在运行当前模块任务：{{status}}",
+    "evolution": {
+      "title": "演进图谱",
+      "description": "查看「{{title}}」每一次迭代的关键变化与证据链。",
+      "totalIterations": "迭代次数",
+      "currentStage": "当前状态",
+      "evidenceCount": "证据数量",
+      "iteration": "第 {{count}} 次",
+      "score": "评分 {{score}}",
+      "keyChanges": "关键改动",
+      "evidenceChain": "证据链",
+      "noChanges": "本次迭代未记录结构化改动。",
+      "noEvidence": "本次迭代没有记录证据链。",
+      "types": {
+        "created": "初始版本",
+        "structure": "结构化",
+        "expand": "扩展",
+        "validate": "验证",
+        "mature": "成熟化",
+        "dream": "造梦迭代",
+        "conclude": "梦境归纳",
+        "feedback": "用户反馈"
+      },
+      "currentDreamSnapshot": "当前梦境快照",
+      "currentVersionSnapshot": "当前版本快照",
+      "details": "本次演进内容"
+    },
+    "ask": {
+      "title": "AI 问一问",
+      "description": "围绕「{{title}}」追问、解释和拆解。",
+      "empty": "可以直接询问这个点子、主题或梦境的背景、证据、演进过程、落地方式、风险与下一步。",
+      "placeholder": "问问 AI：这个内容该怎么理解？",
+      "send": "发送",
+      "thinking": "思考中...",
+      "noModel": "当前没有可用的大模型配置，请先在设置中配置模型。"
+    }
   },
   "lint": {
     "title": "Wiki 检查",

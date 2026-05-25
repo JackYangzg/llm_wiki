@@ -23,7 +23,7 @@ import { Button } from "@/components/ui/button"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useChatStore } from "@/stores/chat-store"
 import { useUpdateStore, hasAvailableUpdate } from "@/stores/update-store"
-import { loadSourceWatchConfig, saveLanguage, savePaperMonitorConfig } from "@/lib/project-store"
+import { loadIngestConcurrency, loadSourceWatchConfig, saveLanguage, savePaperMonitorConfig } from "@/lib/project-store"
 import type { PaperMonitorConfig } from "@/stores/wiki-store"
 import type { SettingsDraft, DraftSetter } from "./settings-types"
 import { normalizeSourceWatchConfig } from "@/lib/source-watch-config"
@@ -158,6 +158,7 @@ function initialDraft(
     inspirationAutoDeepResearchEnabled: inspiration.autoDeepResearchEnabled,
     inspirationDreamMinDurationMinutes: inspiration.dreamMinDurationMinutes,
     inspirationDreamStepIntervalMinutes: inspiration.dreamStepIntervalMinutes,
+    inspirationDreamMaxIterations: inspiration.dreamMaxIterations,
     sourceWatchConfig: normalizeSourceWatchConfig(sourceWatch),
     apiEnabled: apiConfig.enabled,
     apiAllowUnauthenticated: apiConfig.allowUnauthenticated,
@@ -254,6 +255,18 @@ export function SettingsView() {
       cancelled = true
     }
   }, [project?.id, setSourceWatchConfig])
+
+  useEffect(() => {
+    let cancelled = false
+    loadIngestConcurrency().then((value) => {
+      if (cancelled || !value) return
+      setIngestConcurrency(value)
+      setDraftState((prev) => ({ ...prev, ingestConcurrency: value }))
+    }).catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [setIngestConcurrency])
 
   // Resync draft from store if it changes out-of-band (e.g. project switch).
   // IMPORTANT: keep the current draft.uiLanguage instead of re-reading
@@ -427,6 +440,7 @@ export function SettingsView() {
       autoDeepResearchEnabled: draft.inspirationAutoDeepResearchEnabled,
       dreamMinDurationMinutes: Math.max(60, Math.min(1440, draft.inspirationDreamMinDurationMinutes || 60)),
       dreamStepIntervalMinutes: Math.max(1, Math.min(120, draft.inspirationDreamStepIntervalMinutes || 5)),
+      dreamMaxIterations: Math.max(1, Math.min(20, Math.floor(draft.inspirationDreamMaxIterations || 3))),
     }
     setInspirationConfig(newInspirationConfig)
     if (project) {

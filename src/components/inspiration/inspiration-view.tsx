@@ -8,21 +8,36 @@ import {
   Heart,
   Lightbulb,
   Loader2,
+  MessageCircle,
   Moon,
   RefreshCw,
   Search,
+  Send,
   ThumbsDown,
   X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useInspirationStore } from "@/stores/inspiration-store"
-import type { IdeaStage, InspirationItem, InspirationTab } from "@/lib/inspiration-schema"
+import type { IdeaStage, InspirationAskMessage, InspirationComment, InspirationEvolutionEvent, InspirationItem, InspirationTab } from "@/lib/inspiration-schema"
+import { streamChat, type ChatMessage as LLMMessage } from "@/lib/llm-client"
+import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { readFile } from "@/commands/fs"
+import { loadInspirationAskMessages, saveInspirationAskMessages } from "@/lib/inspiration-persist"
 import { queueResearch } from "@/lib/deep-research"
 import { normalizePath } from "@/lib/path-utils"
 import { useTranslation } from "react-i18next"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
+import remarkMath from "remark-math"
 
 const TABS: { id: InspirationTab; label: string; icon: typeof Lightbulb }[] = [
   { id: "daily", label: "inspiration.tabs.factory", icon: Lightbulb },
@@ -53,17 +68,488 @@ function stageLabel(t: (key: string, options?: { defaultValue?: string }) => str
   return t(`inspiration.stage.${stage}`, { defaultValue: stage })
 }
 
+function eventTypeLabel(t: (key: string, options?: { defaultValue?: string }) => string, event: InspirationEvolutionEvent): string {
+  return t(`inspiration.evolution.types.${event.changeType}`, { defaultValue: event.changeType })
+}
+
+function getEvolutionEvents(
+  item: InspirationItem,
+  t: (key: string, options?: { defaultValue?: string }) => string,
+  markdownEvents: InspirationEvolutionEvent[] = [],
+): InspirationEvolutionEvent[] {
+  const events = [...(item.evolutionEvents ?? [])].sort((a, b) => a.iteration - b.iteration || a.changedAt - b.changedAt)
+  if (markdownEvents.length > events.length) return markdownEvents
+  if (events.length > 0) return events
+  return [{
+    id: `${item.id}-current-snapshot`,
+    itemId: item.id,
+    iteration: item.evolutionCount ?? 0,
+    title: item.title,
+    summary: item.summary,
+    changeType: "created",
+    changedAt: item.updatedAt ?? item.createdAt,
+    updatedBy: "system",
+    stage: item.ideaStage,
+    dreamStatus: item.dreamStatus,
+    keyChanges: [
+      item.type === "dream" ? t("inspiration.evolution.currentDreamSnapshot") : t("inspiration.evolution.currentVersionSnapshot"),
+      item.lifecycleStatus ? `status: ${item.lifecycleStatus}` : "",
+      item.version ? `version: ${item.version}` : "",
+    ].filter(Boolean),
+    details: item.body || item.summary,
+    evidenceChain: (item.evidence ?? []).slice(0, 6),
+    score: item.type === "dream" ? item.dreamScore : item.scores.final,
+  }]
+}
+
+function stripMarkdown(markdown: string): string[] {
+  return markdown
+    .split("\n")
+    .map((line) => line.replace(/^#{1,6}\s*/, "").replace(/^[-*]\s*/, "").trim())
+    .filter(Boolean)
+    .slice(0, 8)
+}
+
+function parseDatedMarkdownBlocks(section: string): Array<{ timestamp: string; body: string }> {
+  const matches = [...section.matchAll(/^###\s+(.+?)\s*$/gm)]
+  return matches.map((match, index) => {
+    const start = (match.index ?? 0) + match[0].length
+    const end = index + 1 < matches.length ? matches[index + 1].index ?? section.length : section.length
+    return {
+      timestamp: match[1].trim(),
+      body: section.slice(start, end).trim(),
+    }
+  }).filter((block) => block.body.length > 0)
+}
+
+function markdownSection(markdown: string, heading: string): string {
+  const start = markdown.indexOf(heading)
+  if (start < 0) return ""
+  const rest = markdown.slice(start + heading.length)
+  const next = rest.search(/\n##\s+/)
+  return next >= 0 ? rest.slice(0, next) : rest
+}
+
+function parseMarkdownEvolutionEvents(item: InspirationItem, markdown: string): InspirationEvolutionEvent[] {
+  const rawBlocks = [
+    ...parseDatedMarkdownBlocks(markdownSection(markdown, "## Evolution Log")).map((block) => ({ ...block, type: "expand" as const })),
+    ...parseDatedMarkdownBlocks(markdownSection(markdown, "## Dream Continuation")).map((block) => ({ ...block, type: "dream" as const })),
+    ...parseDatedMarkdownBlocks(markdownSection(markdown, "## Final Dream Conclusion")).map((block) => ({ ...block, type: "conclude" as const })),
+  ].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+  return rawBlocks.map((block, index) => {
+    const changedAt = Date.parse(block.timestamp)
+    return {
+      id: `${item.id}-markdown-evolution-${index + 1}`,
+      itemId: item.id,
+      iteration: index + 1,
+      title: `${item.title} · ${index + 1}`,
+      summary: stripMarkdown(block.body).slice(0, 2).join(" ") || item.summary,
+      changeType: block.type,
+      changedAt: Number.isFinite(changedAt) ? changedAt : item.updatedAt ?? item.createdAt,
+      updatedBy: "LLM",
+      stage: item.ideaStage,
+      dreamStatus: item.dreamStatus,
+      keyChanges: stripMarkdown(block.body),
+      details: block.body,
+      evidenceChain: (item.evidence ?? []).slice(0, 6),
+      score: item.type === "dream" ? item.dreamScore : item.scores.final,
+    }
+  })
+}
+
+function EvolutionGraphDialog({
+  item,
+  open,
+  onOpenChange,
+}: {
+  item: InspirationItem | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const { t } = useTranslation()
+  const [markdownEvents, setMarkdownEvents] = useState<InspirationEvolutionEvent[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadMarkdownEvents() {
+      if (!item?.markdownPath) {
+        setMarkdownEvents([])
+        return
+      }
+      try {
+        const markdown = await readFile(item.markdownPath)
+        if (!cancelled) setMarkdownEvents(parseMarkdownEvolutionEvents(item, markdown))
+      } catch {
+        if (!cancelled) setMarkdownEvents([])
+      }
+    }
+    if (open) void loadMarkdownEvents()
+    return () => {
+      cancelled = true
+    }
+  }, [item, open])
+
+  const events = item ? getEvolutionEvents(item, t, markdownEvents) : []
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex h-[82vh] max-h-[82vh] grid-rows-none flex-col overflow-hidden sm:max-w-4xl">
+        <DialogHeader className="shrink-0 pr-8">
+          <DialogTitle>{t("inspiration.evolution.title")}</DialogTitle>
+          <DialogDescription>
+            {item ? t("inspiration.evolution.description", { title: item.title }) : ""}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1">
+          <div className="mb-4 grid gap-2 sm:grid-cols-3">
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <div className="text-[11px] text-muted-foreground">{t("inspiration.evolution.totalIterations")}</div>
+              <div className="text-2xl font-semibold">{item?.evolutionCount ?? 0}</div>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <div className="text-[11px] text-muted-foreground">{t("inspiration.evolution.currentStage")}</div>
+              <div className="truncate text-sm font-medium">
+                {item?.type === "dream" ? item.dreamStatus ?? "-" : stageLabel(t, item?.ideaStage)}
+              </div>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <div className="text-[11px] text-muted-foreground">{t("inspiration.evolution.evidenceCount")}</div>
+              <div className="text-2xl font-semibold">{item?.evidence?.length ?? 0}</div>
+            </div>
+          </div>
+
+          <div className="relative space-y-4 pl-5">
+            <div className="absolute left-[0.95rem] top-2 bottom-2 w-px bg-border" />
+            {events.map((event, index) => (
+              <div key={event.id} className="relative">
+                <div className="absolute -left-5 top-2 flex h-8 w-8 items-center justify-center rounded-full border bg-background text-xs font-semibold text-primary shadow-sm">
+                  {index + 1}
+                </div>
+                <div className="ml-5 rounded-lg border bg-background p-3 shadow-sm">
+                  <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                        <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
+                          {eventTypeLabel(t, event)}
+                        </span>
+                        <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                          {t("inspiration.evolution.iteration", { count: event.iteration })}
+                        </span>
+                        {typeof event.score === "number" && (
+                          <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                            {t("inspiration.evolution.score", { score: scorePercent(event.score) })}
+                          </span>
+                        )}
+                      </div>
+                      <h3 className="line-clamp-2 text-sm font-semibold">{event.title}</h3>
+                      <div className="mt-1 text-[11px] text-muted-foreground">{formatTime(event.changedAt)} / {event.updatedBy}</div>
+                    </div>
+                  </div>
+                  <p className="mb-3 text-sm text-muted-foreground">{event.summary}</p>
+                  <div className="mb-3">
+                    <div className="mb-1 text-[11px] font-medium text-muted-foreground">{t("inspiration.evolution.keyChanges")}</div>
+                    <div className="grid gap-1">
+                      {(event.keyChanges.length > 0 ? event.keyChanges : [t("inspiration.evolution.noChanges")]).map((change, changeIndex) => (
+                        <div key={`${event.id}-change-${changeIndex}`} className="rounded-md bg-muted/50 px-2 py-1 text-xs">
+                          {change}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {event.details && (
+                    <div className="mb-3">
+                      <div className="mb-1 text-[11px] font-medium text-muted-foreground">{t("inspiration.evolution.details")}</div>
+                      <div className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md border bg-muted/20 px-2 py-2 text-xs leading-relaxed">
+                        {event.details}
+                      </div>
+                    </div>
+                  )}
+                  <div>
+                    <div className="mb-1 text-[11px] font-medium text-muted-foreground">{t("inspiration.evolution.evidenceChain")}</div>
+                    {event.evidenceChain.length === 0 ? (
+                      <div className="rounded-md border border-dashed px-2 py-2 text-xs text-muted-foreground">
+                        {t("inspiration.evolution.noEvidence")}
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {event.evidenceChain.map((evidence, evidenceIndex) => (
+                          <span
+                            key={`${event.id}-${evidence.id}-${evidenceIndex}`}
+                            className="max-w-full truncate rounded-md border bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground"
+                            title={`${evidence.title}: ${evidence.snippet}`}
+                          >
+                            {evidenceIndex + 1}. {evidence.title}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function buildAskContext(
+  item: InspirationItem,
+  comments: InspirationComment[],
+  events: InspirationEvolutionEvent[],
+  markdown: string,
+): string {
+  const evidence = (item.evidence ?? [])
+    .slice(0, 12)
+    .map((e, index) => `${index + 1}. ${e.title} (${e.role}, ${Math.round(e.relevanceScore * 100)}): ${e.snippet}\n${e.pagePath}`)
+    .join("\n")
+  const userComments = comments
+    .slice(0, 12)
+    .map((comment, index) => `${index + 1}. ${new Date(comment.createdAt).toISOString()}: ${comment.body}`)
+    .join("\n")
+  const evolution = events
+    .slice(-8)
+    .map((event) => [
+      `Iteration ${event.iteration}: ${event.title}`,
+      `Type: ${event.changeType}; summary: ${event.summary}`,
+      event.details ? `Details:\n${event.details.slice(0, 2500)}` : "",
+    ].filter(Boolean).join("\n"))
+    .join("\n\n")
+  return [
+    `Item type: ${item.type}`,
+    `Title: ${item.title}`,
+    `Summary: ${item.summary}`,
+    `Status: ${item.lifecycleStatus ?? "idle"} / ${item.reviewState}`,
+    `Stage: ${item.ideaStage ?? "n/a"}`,
+    `Dream status: ${item.dreamStatus ?? "n/a"}`,
+    "",
+    "Evidence chain:",
+    evidence || "(No evidence recorded.)",
+    "",
+    "User comments:",
+    userComments || "(No user comments.)",
+    "",
+    "Evolution history:",
+    evolution || "(No evolution history.)",
+    "",
+    "Current markdown:",
+    markdown.slice(0, 10000),
+  ].join("\n")
+}
+
+function AskItemDialog({
+  item,
+  comments,
+  projectPath,
+  llmConfig,
+  open,
+  onOpenChange,
+}: {
+  item: InspirationItem | null
+  comments: InspirationComment[]
+  projectPath?: string
+  llmConfig: ReturnType<typeof useWikiStore.getState>["llmConfig"]
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const { t } = useTranslation()
+  const [question, setQuestion] = useState("")
+  const [messages, setMessages] = useState<InspirationAskMessage[]>([])
+  const [streaming, setStreaming] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadHistory() {
+      if (!projectPath || !item) {
+        setMessages([])
+        return
+      }
+      const history = await loadInspirationAskMessages(projectPath, item.id).catch(() => [])
+      if (!cancelled) setMessages(history)
+    }
+    if (open) {
+      setQuestion("")
+      setError(null)
+      setStreaming(false)
+      void loadHistory()
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [item, open, projectPath])
+
+  async function ask() {
+    if (!item || !projectPath || !question.trim() || streaming) return
+    if (!hasUsableLlm(llmConfig)) {
+      setError(t("inspiration.ask.noModel"))
+      return
+    }
+    const userQuestion = question.trim()
+    const now = Date.now()
+    const userMessage: InspirationAskMessage = { id: `ask-user-${now}`, itemId: item.id, role: "user", content: userQuestion, createdAt: now }
+    const assistantId = `ask-assistant-${Date.now()}`
+    const assistantMessage: InspirationAskMessage = { id: assistantId, itemId: item.id, role: "assistant", content: "", createdAt: now + 1 }
+    const baseMessages = [...messages, userMessage, assistantMessage]
+    setMessages(baseMessages)
+    setQuestion("")
+    setStreaming(true)
+    setError(null)
+
+    try {
+      await saveInspirationAskMessages(projectPath, item.id, baseMessages).catch(() => {})
+      const markdown = await readFile(item.markdownPath).catch(() => item.body)
+      const markdownEvents = parseMarkdownEvolutionEvents(item, markdown)
+      const events = getEvolutionEvents(item, t, markdownEvents)
+      const context = buildAskContext(item, comments, events, markdown)
+      const history: LLMMessage[] = messages.slice(-8).map((message) => ({
+        role: message.role,
+        content: message.content,
+      }))
+      let assistantContent = ""
+      const llmMessages: LLMMessage[] = [
+        {
+          role: "system",
+          content: [
+            "You are an AI explainer inside an inspiration system.",
+            "Answer only about the current idea, theme, or dream unless the user explicitly asks for adjacent context.",
+            "Use the provided evidence chain, user comments, evolution history, and markdown.",
+            "Be clear, practical, and trace claims back to evidence or evolution steps when useful.",
+            "If evidence is insufficient, say what is missing instead of inventing facts.",
+          ].join("\n"),
+        },
+        {
+          role: "user",
+          content: [
+            "Current item context:",
+            context,
+            "",
+            "Conversation so far follows. Answer the latest user question.",
+          ].join("\n"),
+        },
+        ...history,
+        { role: "user", content: userQuestion },
+      ]
+      await streamChat(
+        llmConfig,
+        llmMessages,
+        {
+          onToken: (token) => {
+            assistantContent += token
+            setMessages((prev) => prev.map((message) =>
+              message.id === assistantId ? { ...message, content: message.content + token } : message,
+            ))
+          },
+          onDone: () => {
+            setStreaming(false)
+            const finalMessages = baseMessages.map((message) =>
+              message.id === assistantId ? { ...message, content: assistantContent } : message,
+            )
+            setMessages(finalMessages)
+            void saveInspirationAskMessages(projectPath, item.id, finalMessages)
+          },
+          onError: (err) => {
+            setError(err.message)
+            setStreaming(false)
+            const finalMessages = baseMessages.map((message) =>
+              message.id === assistantId ? { ...message, content: assistantContent || err.message } : message,
+            )
+            setMessages(finalMessages)
+            void saveInspirationAskMessages(projectPath, item.id, finalMessages)
+          },
+        },
+        undefined,
+        { temperature: 0.35 },
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      setStreaming(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex h-[78vh] max-h-[78vh] grid-rows-none flex-col overflow-hidden sm:max-w-3xl">
+        <DialogHeader className="shrink-0 pr-8">
+          <DialogTitle>{t("inspiration.ask.title")}</DialogTitle>
+          <DialogDescription>
+            {item ? t("inspiration.ask.description", { title: item.title }) : ""}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+          {messages.length === 0 ? (
+            <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+              {t("inspiration.ask.empty")}
+            </div>
+          ) : (
+            messages.map((message) => (
+              <div
+                key={message.id}
+                className={message.role === "user"
+                  ? "ml-auto max-w-[85%] rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground"
+                  : "mr-auto max-w-[90%] rounded-lg border bg-muted/40 px-3 py-2 text-sm"}
+              >
+                {message.role === "assistant" ? (
+                  message.content ? (
+                    <div className="prose prose-sm max-w-none dark:prose-invert prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-pre:my-2 prose-pre:overflow-auto prose-code:break-words">
+                      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]}>
+                        {message.content}
+                      </ReactMarkdown>
+                    </div>
+                  ) : (
+                    t("inspiration.ask.thinking")
+                  )
+                ) : (
+                  <div className="whitespace-pre-wrap">{message.content}</div>
+                )}
+              </div>
+            ))
+          )}
+          {error && (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+              {error}
+            </div>
+          )}
+        </div>
+        <div className="shrink-0 border-t pt-3">
+          <div className="flex gap-2">
+            <Input
+              value={question}
+              onChange={(event) => setQuestion(event.target.value)}
+              placeholder={t("inspiration.ask.placeholder")}
+              disabled={streaming}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void ask()
+              }}
+            />
+            <Button onClick={ask} disabled={!question.trim() || streaming || !item || !projectPath}>
+              {streaming ? <Loader2 className="animate-spin" /> : <Send />}
+              {t("inspiration.ask.send")}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function ItemCard({
   item,
   onOpen,
   onFeedback,
   onResearch,
   onIterate,
+  onDreamContinue,
+  onDreamConclude,
+  onShowEvolution,
+  onAsk,
+  dreamMaxIterations,
   isLiked,
   isSaved,
   isAdopted,
   isDisliked,
   isEvolving,
+  comments,
   commentDraft,
   onCommentDraft,
   onComment,
@@ -73,16 +559,23 @@ function ItemCard({
   onFeedback: (item: InspirationItem, action: "like" | "unlike" | "dislike" | "undislike" | "save" | "unsave" | "promote" | "unpromote" | "reject") => void
   onResearch: (item: InspirationItem) => void
   onIterate: (item: InspirationItem) => void
+  onDreamContinue: (item: InspirationItem) => void
+  onDreamConclude: (item: InspirationItem) => void
+  onShowEvolution: (item: InspirationItem) => void
+  onAsk: (item: InspirationItem) => void
+  dreamMaxIterations: number
   isLiked: boolean
   isSaved: boolean
   isAdopted: boolean
   isDisliked: boolean
   isEvolving: boolean
+  comments: InspirationComment[]
   commentDraft: string
   onCommentDraft: (item: InspirationItem, value: string) => void
   onComment: (item: InspirationItem) => void
 }) {
   const { t } = useTranslation()
+  const recentComments = comments.slice(0, 3)
   return (
     <article className="rounded-lg border bg-background p-3 shadow-sm">
       <div className="mb-2 flex items-start justify-between gap-3">
@@ -155,11 +648,31 @@ function ItemCard({
       {item.type === "dream" && (
         <div className="mt-2 grid grid-cols-3 gap-1 text-[10px] text-muted-foreground">
           <span>{t("inspiration.card.status")} {item.dreamStatus ?? "dreaming"}</span>
-          <span>{t("inspiration.card.dreamIterations", { count: item.evolutionCount ?? 0 })}</span>
+          <span>{t("inspiration.card.dreamIterations", { count: item.evolutionCount ?? 0, max: dreamMaxIterations })}</span>
           <span>{t("inspiration.card.updated")} {formatTime(item.updatedAt ?? item.createdAt)}</span>
           <span>{t("inspiration.card.dreamMode")} {item.dreamMode ? t(`inspiration.dreamModes.${item.dreamMode}`, { defaultValue: item.dreamMode }) : "-"}</span>
           <span>{t("inspiration.card.fragments", { count: item.dreamFragments?.length ?? 0 })}</span>
           <span>{t("inspiration.card.dreamScore")} {typeof item.dreamScore === "number" ? scorePercent(item.dreamScore) : "-"}</span>
+        </div>
+      )}
+      {recentComments.length > 0 && (
+        <div className="mt-3 rounded-md border bg-muted/30 p-2">
+          <div className="mb-1 text-[11px] font-medium text-muted-foreground">
+            {t("inspiration.comments.recent")}
+          </div>
+          <div className="space-y-1">
+            {recentComments.map((comment) => (
+              <div key={comment.id} className="rounded-md bg-background/80 px-2 py-1">
+                <div className="text-[10px] text-muted-foreground">{formatTime(comment.createdAt)}</div>
+                <div className="line-clamp-2 whitespace-pre-wrap text-xs text-foreground">{comment.body}</div>
+              </div>
+            ))}
+          </div>
+          {comments.length > recentComments.length && (
+            <div className="mt-1 text-[10px] text-muted-foreground">
+              {t("inspiration.comments.more", { count: comments.length - recentComments.length })}
+            </div>
+          )}
         </div>
       )}
       <div className="mt-3 flex items-center gap-1">
@@ -195,10 +708,26 @@ function ItemCard({
         <Button variant="ghost" size="icon-xs" title={t("inspiration.actions.deepResearch")} onClick={() => onResearch(item)}>
           <Search />
         </Button>
+        <Button variant="ghost" size="icon-xs" title={t("inspiration.actions.evolutionGraph")} onClick={() => onShowEvolution(item)}>
+          <GitBranch />
+        </Button>
+        <Button variant="ghost" size="icon-xs" title={t("inspiration.actions.askAi")} onClick={() => onAsk(item)}>
+          <MessageCircle />
+        </Button>
         {(item.type === "idea" || item.type === "theme") && (
           <Button variant="ghost" size="icon-xs" title={t("inspiration.actions.iterate")} onClick={() => onIterate(item)} disabled={isEvolving}>
             {isEvolving ? <Loader2 className="animate-spin" /> : <RefreshCw />}
           </Button>
+        )}
+        {item.type === "dream" && (
+          <>
+            <Button variant="ghost" size="icon-xs" title={t("inspiration.actions.continueDream")} onClick={() => onDreamContinue(item)} disabled={isEvolving}>
+              {isEvolving ? <Loader2 className="animate-spin" /> : <Moon />}
+            </Button>
+            <Button variant="ghost" size="icon-xs" title={t("inspiration.actions.concludeDream")} onClick={() => onDreamConclude(item)} disabled={isEvolving}>
+              {isEvolving ? <Loader2 className="animate-spin" /> : <Brain />}
+            </Button>
+          </>
         )}
         <Button
           variant="ghost"
@@ -235,6 +764,7 @@ export function InspirationView() {
   const project = useWikiStore((s) => s.project)
   const llmConfig = useWikiStore((s) => s.llmConfig)
   const searchApiConfig = useWikiStore((s) => s.searchApiConfig)
+  const inspirationConfig = useWikiStore((s) => s.inspirationConfig)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
   const setFileContent = useWikiStore((s) => s.setFileContent)
   const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
@@ -243,6 +773,7 @@ export function InspirationView() {
     runs,
     items,
     feedback,
+    comments,
     runningByType,
     statusByType,
     activeStatus,
@@ -252,6 +783,8 @@ export function InspirationView() {
     addFeedback,
     addComment,
     evolveItem,
+    continueDreamItem,
+    concludeDreamItem,
     markThemeLabExploring,
     exploreExistingThemes,
   } = useInspirationStore()
@@ -261,6 +794,8 @@ export function InspirationView() {
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({})
   const [dreamPickerOpen, setDreamPickerOpen] = useState(false)
   const [selectedDreamSeeds, setSelectedDreamSeeds] = useState<string[]>([])
+  const [evolutionItem, setEvolutionItem] = useState<InspirationItem | null>(null)
+  const [askItem, setAskItem] = useState<InspirationItem | null>(null)
 
   const feedbackState = useMemo(() => {
     const liked = new Set<string>()
@@ -286,6 +821,19 @@ export function InspirationView() {
     const adopted = new Set(items.filter((item) => item.reviewState === "formal" || item.origin === "adopted").map((item) => item.id))
     return { liked, saved, disliked, adopted }
   }, [feedback, items])
+
+  const commentsByItem = useMemo(() => {
+    const grouped = new Map<string, InspirationComment[]>()
+    for (const comment of comments) {
+      const list = grouped.get(comment.itemId) ?? []
+      list.push(comment)
+      grouped.set(comment.itemId, list)
+    }
+    for (const list of grouped.values()) {
+      list.sort((a, b) => b.createdAt - a.createdAt)
+    }
+    return grouped
+  }, [comments])
 
   useEffect(() => {
     if (project) void load(project.path)
@@ -392,6 +940,16 @@ export function InspirationView() {
   async function handleIterate(item: InspirationItem) {
     if (!project || (item.type !== "idea" && item.type !== "theme")) return
     await evolveItem(project.path, llmConfig, item.id)
+  }
+
+  async function handleDreamContinue(item: InspirationItem) {
+    if (!project || item.type !== "dream") return
+    await continueDreamItem(project.path, llmConfig, item.id)
+  }
+
+  async function handleDreamConclude(item: InspirationItem) {
+    if (!project || item.type !== "dream") return
+    await concludeDreamItem(project.path, llmConfig, item.id)
   }
 
   const latestRun = runs[0]
@@ -564,11 +1122,17 @@ export function InspirationView() {
                 onFeedback={handleFeedback}
                 onResearch={handleResearch}
                 onIterate={handleIterate}
+                onDreamContinue={handleDreamContinue}
+                onDreamConclude={handleDreamConclude}
+                onShowEvolution={setEvolutionItem}
+                onAsk={setAskItem}
+                dreamMaxIterations={inspirationConfig.dreamMaxIterations}
                 isLiked={feedbackState.liked.has(item.id)}
                 isSaved={feedbackState.saved.has(item.id)}
                 isAdopted={feedbackState.adopted.has(item.id)}
                 isDisliked={feedbackState.disliked.has(item.id)}
                 isEvolving={item.lifecycleStatus === "evolving"}
+                comments={commentsByItem.get(item.id) ?? []}
                 commentDraft={commentDrafts[item.id] ?? ""}
                 onCommentDraft={handleCommentDraft}
                 onComment={handleComment}
@@ -577,6 +1141,23 @@ export function InspirationView() {
           </div>
         )}
       </div>
+      <EvolutionGraphDialog
+        item={evolutionItem}
+        open={!!evolutionItem}
+        onOpenChange={(open) => {
+          if (!open) setEvolutionItem(null)
+        }}
+      />
+      <AskItemDialog
+        item={askItem}
+        comments={askItem ? commentsByItem.get(askItem.id) ?? [] : []}
+        projectPath={project?.path}
+        llmConfig={llmConfig}
+        open={!!askItem}
+        onOpenChange={(open) => {
+          if (!open) setAskItem(null)
+        }}
+      />
     </div>
   )
 }

@@ -18,6 +18,16 @@ interface DreamEvolutionResult {
   dreamScore?: number
 }
 
+function summarizeDreamChanges(result: DreamEvolutionResult, converging: boolean): string[] {
+  const lines = [
+    converging ? "收敛归纳梦境，提炼最终结论与下一步任务。" : "继续扩散梦境路径，并更新醒后复盘。",
+    ...result.fragments.slice(0, 2).map((fragment) => `${fragment.type}: ${fragment.title}`),
+    ...result.insights.slice(0, 2).map((insight) => `${insight.type}: ${insight.content}`),
+    ...result.outputs.slice(0, 1).map((output) => `${output.outputType}: ${output.title}`),
+  ]
+  return lines.map((line) => line.trim()).filter(Boolean).slice(0, 6)
+}
+
 function parseScore(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value)
     ? Math.max(0, Math.min(1, value > 1 ? value / 100 : value))
@@ -46,14 +56,24 @@ function asDreamInsightType(value: unknown): DreamInsightType {
   return allowed.includes(type as DreamInsightType) ? type as DreamInsightType : "product_opportunity"
 }
 
-function activeDreams(snapshot: InspirationSnapshot): InspirationItem[] {
+interface ContinueDreamOptions {
+  maxIterations?: number
+  itemIds?: string[]
+  forceConverge?: boolean
+  allowBeyondLimit?: boolean
+}
+
+function activeDreams(snapshot: InspirationSnapshot, options: ContinueDreamOptions = {}): InspirationItem[] {
+  const idSet = options.itemIds ? new Set(options.itemIds) : null
+  const maxIterations = Math.max(1, Math.min(20, Math.floor(options.maxIterations ?? 3)))
   return snapshot.items
     .filter((item) =>
+      (!idSet || idSet.has(item.id)) &&
       item.type === "dream" &&
       item.reviewState !== "rejected" &&
       item.reviewState !== "formal" &&
-      item.dreamStatus !== "done" &&
-      (item.evolutionCount ?? 0) < 3 &&
+      (options.forceConverge || options.allowBeyondLimit || item.dreamStatus !== "done") &&
+      (options.forceConverge || options.allowBeyondLimit || (item.evolutionCount ?? 0) < maxIterations) &&
       !!item.markdownPath,
     )
     .sort((a, b) => (a.lastEvolvedAt ?? a.createdAt) - (b.lastEvolvedAt ?? b.createdAt))
@@ -184,7 +204,7 @@ async function dreamStep(
         content: [
           "You are continuing a long-running traceable knowledge dream.",
           converging
-            ? "The dream has run long enough. Converge into a coherent product or richly supported knowledge artifact."
+            ? "This is a convergence pass. Summarize the full dream, resolve the fragments, and produce final conclusions, useful ideas, solution sketches, hypotheses, knowledge gaps, and next tasks."
             : "Each step should expand the dream, add logical support, and move slightly toward convergence.",
           "Use broad wiki context and graph-neighbor evidence. Do not limit yourself to the original evidence list.",
           "Return strict JSON only.",
@@ -247,6 +267,22 @@ function appendDreamStep(markdown: string, note: string, timestamp: string): str
   return markdown.replace("## Dream Continuation", `${block.trimEnd()}\n\n## Dream Continuation`)
 }
 
+function appendFinalConclusion(markdown: string, note: string, timestamp: string): string {
+  const block = [
+    "",
+    "## Final Dream Conclusion",
+    "",
+    `### ${timestamp}`,
+    "",
+    note.trim(),
+    "",
+  ].join("\n")
+  if (!markdown.includes("## Final Dream Conclusion")) {
+    return markdown.trimEnd() + "\n" + block
+  }
+  return markdown.replace("## Final Dream Conclusion", `${block.trimEnd()}\n\n## Final Dream Conclusion`)
+}
+
 function yamlString(value: string): string {
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, " ")}"`
 }
@@ -304,10 +340,12 @@ function patchFrontmatter(
 export async function continueDreams(
   projectPath: string,
   llmConfig: LlmConfig,
+  options: ContinueDreamOptions = {},
 ): Promise<InspirationSnapshot> {
   const snapshot = await loadInspirationSnapshot(projectPath)
   const now = Date.now()
-  const selected = activeDreams(snapshot).slice(0, 2)
+  const maxIterations = Math.max(1, Math.min(20, Math.floor(options.maxIterations ?? 3)))
+  const selected = activeDreams(snapshot, options).slice(0, options.itemIds ? options.itemIds.length : 2)
   if (selected.length === 0) return snapshot
 
   const evolved = new Map<string, InspirationItem>()
@@ -320,8 +358,10 @@ export async function continueDreams(
     }
     const timestamp = new Date().toISOString()
     const nextCount = (item.evolutionCount ?? 0) + 1
-    const converging = now >= (item.dreamUntil ?? Number.POSITIVE_INFINITY)
-    const status = converging || nextCount >= 3 ? "done" : (now + 60_000 >= (item.dreamUntil ?? now) ? "converging" : "dreaming")
+    const reachedIterationLimit = !options.allowBeyondLimit && nextCount >= maxIterations
+    const reachedTimeLimit = !options.allowBeyondLimit && now >= (item.dreamUntil ?? Number.POSITIVE_INFINITY)
+    const converging = !!options.forceConverge || reachedIterationLimit || reachedTimeLimit
+    const status = converging ? "done" : (now + 60_000 >= (item.dreamUntil ?? now) ? "converging" : "dreaming")
     const seeds = await collectInspirationSeeds(projectPath, item.title, 140).catch(() => [])
     const knowledgeContext = seeds
       .map((seed, index) => `[${index + 1}] ${seed.title} (type=${seed.type}; community=${seed.community}; links=${seed.linkCount})\n${seed.snippet}`)
@@ -337,8 +377,11 @@ export async function continueDreams(
       outputs: [],
       dreamScore: item.dreamScore,
     }))
+    const appended = status === "done"
+      ? appendFinalConclusion(markdown, result.note, timestamp)
+      : appendDreamStep(markdown, result.note, timestamp)
     const nextMarkdown = patchFrontmatter(
-      replaceHeadingAndSummary(appendDreamStep(markdown, result.note, timestamp), result.title, result.summary),
+      replaceHeadingAndSummary(appended, result.title, result.summary),
       result.title,
       result.summary,
       timestamp,
@@ -348,6 +391,21 @@ export async function continueDreams(
       result.dreamScore,
     )
     await writeFile(item.markdownPath, nextMarkdown)
+    const event = {
+      id: `${item.id}-dream-${nextCount}`,
+      itemId: item.id,
+      iteration: nextCount,
+      title: result.title,
+      summary: result.summary,
+      changeType: status === "done" ? "conclude" as const : "dream" as const,
+      changedAt: now,
+      updatedBy: "LLM" as const,
+      dreamStatus: status as InspirationItem["dreamStatus"],
+      keyChanges: summarizeDreamChanges(result, converging),
+      details: result.note,
+      evidenceChain: (item.evidence ?? []).slice(0, 6),
+      score: result.dreamScore ?? item.dreamScore,
+    }
     evolved.set(item.id, {
       ...item,
       title: result.title,
@@ -361,6 +419,7 @@ export async function continueDreams(
       lastEvolvedAt: now,
       evolutionCount: nextCount,
       dreamStatus: status as InspirationItem["dreamStatus"],
+      evolutionEvents: [...(item.evolutionEvents ?? []), event],
     })
   }
 

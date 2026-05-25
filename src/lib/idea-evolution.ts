@@ -140,6 +140,15 @@ function taskForStage(stage: IdeaStage): IdeaTaskType {
   return "score"
 }
 
+function summarizeChanges(note: string): string[] {
+  const lines = note
+    .split("\n")
+    .map((line) => line.replace(/^#{1,6}\s*/, "").replace(/^[-*]\s*/, "").trim())
+    .filter(Boolean)
+    .filter((line) => !/^evolution note$/i.test(line))
+  return lines.slice(0, 5)
+}
+
 function patchFrontmatter(
   markdown: string,
   updatedIso: string,
@@ -209,6 +218,22 @@ export async function evolveIdeas(
     const taskType = taskForStage(item.ideaStage ?? "candidate")
     const nextMarkdown = patchFrontmatter(appendEvolution(markdown, note, updatedIso), updatedIso, nextCount, nextVersion, nextStage, taskType)
     await writeFile(item.markdownPath, nextMarkdown)
+    const event = {
+      id: `${item.id}-evolution-${nextCount}`,
+      itemId: item.id,
+      iteration: nextCount,
+      title: `${item.title} v${nextVersion}`,
+      summary: `stage: ${item.ideaStage ?? "candidate"} -> ${nextStage}; task: ${taskType}`,
+      changeType: taskType === "validate" ? "validate" as const : taskType === "mature" ? "mature" as const : taskType === "structure" ? "structure" as const : "expand" as const,
+      changedAt: now,
+      updatedBy: "LLM" as const,
+      stage: nextStage,
+      taskType,
+      keyChanges: summarizeChanges(note),
+      details: note,
+      evidenceChain: (item.evidence ?? []).slice(0, 6),
+      score: item.scores.final,
+    }
     evolvedIds.set(item.id, {
       ...item,
       ideaStage: nextStage,
@@ -219,6 +244,7 @@ export async function evolveIdeas(
       lastEvolvedAt: now,
       evolutionCount: nextCount,
       lifecycleStatus: "done",
+      evolutionEvents: [...(item.evolutionEvents ?? []), event],
     })
   }
 

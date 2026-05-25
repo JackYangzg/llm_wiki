@@ -49,6 +49,8 @@ interface InspirationState {
   evolveItem: (projectPath: string, llmConfig: LlmConfig, itemId: string) => Promise<void>
   exploreExistingThemes: (projectPath: string, llmConfig: LlmConfig) => Promise<void>
   continueDreams: (projectPath: string, llmConfig: LlmConfig) => Promise<void>
+  continueDreamItem: (projectPath: string, llmConfig: LlmConfig, itemId: string) => Promise<void>
+  concludeDreamItem: (projectPath: string, llmConfig: LlmConfig, itemId: string) => Promise<void>
   addComment: (projectPath: string, itemId: string, body: string) => Promise<void>
   markThemeLabExploring: (projectPath: string) => Promise<void>
   setSnapshot: (snapshot: InspirationSnapshot) => void
@@ -348,7 +350,9 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
     if (get().evolving) return
     set({ evolving: true, activeStatus: "evolving", error: null })
     try {
-      const snapshot = await continueDreams(projectPath, llmConfig)
+      const snapshot = await continueDreams(projectPath, llmConfig, {
+        maxIterations: useWikiStore.getState().inspirationConfig.dreamMaxIterations,
+      })
       set({
         runs: snapshot.runs,
         items: snapshot.items,
@@ -363,6 +367,98 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
         evolving: false,
         activeStatus: "error",
         error: err instanceof Error ? err.message : String(err),
+      })
+    }
+  },
+
+  continueDreamItem: async (projectPath, llmConfig, itemId) => {
+    if (get().evolvingItemIds.includes(itemId)) return
+    set((state) => ({
+      evolving: true,
+      evolvingItemIds: [...state.evolvingItemIds, itemId],
+      activeStatus: "evolving",
+      error: null,
+      items: state.items.map((item) =>
+        item.id === itemId ? { ...item, lifecycleStatus: "evolving" as const, dreamStatus: "dreaming" as const } : item,
+      ),
+    }))
+    try {
+      const snapshot = await continueDreams(projectPath, llmConfig, {
+        maxIterations: useWikiStore.getState().inspirationConfig.dreamMaxIterations,
+        itemIds: [itemId],
+        allowBeyondLimit: true,
+      })
+      set((state) => {
+        const remaining = state.evolvingItemIds.filter((id) => id !== itemId)
+        return {
+          runs: snapshot.runs,
+          items: snapshot.items,
+          feedback: snapshot.feedback,
+          comments: snapshot.comments,
+          evolvingItemIds: remaining,
+          evolving: remaining.length > 0,
+          activeStatus: remaining.length > 0 ? "evolving" : null,
+        }
+      })
+      useWikiStore.getState().bumpDataVersion()
+    } catch (err) {
+      set((state) => {
+        const remaining = state.evolvingItemIds.filter((id) => id !== itemId)
+        return {
+          evolvingItemIds: remaining,
+          evolving: remaining.length > 0,
+          activeStatus: remaining.length > 0 ? "evolving" : "error",
+          error: err instanceof Error ? err.message : String(err),
+          items: state.items.map((item) =>
+            item.id === itemId ? { ...item, lifecycleStatus: "error" as const } : item,
+          ),
+        }
+      })
+    }
+  },
+
+  concludeDreamItem: async (projectPath, llmConfig, itemId) => {
+    if (get().evolvingItemIds.includes(itemId)) return
+    set((state) => ({
+      evolving: true,
+      evolvingItemIds: [...state.evolvingItemIds, itemId],
+      activeStatus: "evolving",
+      error: null,
+      items: state.items.map((item) =>
+        item.id === itemId ? { ...item, lifecycleStatus: "evolving" as const, dreamStatus: "converging" as const } : item,
+      ),
+    }))
+    try {
+      const snapshot = await continueDreams(projectPath, llmConfig, {
+        maxIterations: useWikiStore.getState().inspirationConfig.dreamMaxIterations,
+        itemIds: [itemId],
+        forceConverge: true,
+      })
+      set((state) => {
+        const remaining = state.evolvingItemIds.filter((id) => id !== itemId)
+        return {
+          runs: snapshot.runs,
+          items: snapshot.items,
+          feedback: snapshot.feedback,
+          comments: snapshot.comments,
+          evolvingItemIds: remaining,
+          evolving: remaining.length > 0,
+          activeStatus: remaining.length > 0 ? "evolving" : null,
+        }
+      })
+      useWikiStore.getState().bumpDataVersion()
+    } catch (err) {
+      set((state) => {
+        const remaining = state.evolvingItemIds.filter((id) => id !== itemId)
+        return {
+          evolvingItemIds: remaining,
+          evolving: remaining.length > 0,
+          activeStatus: remaining.length > 0 ? "evolving" : "error",
+          error: err instanceof Error ? err.message : String(err),
+          items: state.items.map((item) =>
+            item.id === itemId ? { ...item, lifecycleStatus: "error" as const } : item,
+          ),
+        }
       })
     }
   },

@@ -258,6 +258,7 @@ export const DEFAULT_INSPIRATION_CONFIG: InspirationConfig = {
   autoDeepResearchEnabled: false,
   dreamMinDurationMinutes: 60,
   dreamStepIntervalMinutes: 5,
+  dreamMaxIterations: 3,
 }
 
 function normalizeInspirationConfig(config: Partial<InspirationConfig> | null | undefined): InspirationConfig {
@@ -292,6 +293,10 @@ function normalizeInspirationConfig(config: Partial<InspirationConfig> | null | 
       typeof config?.dreamStepIntervalMinutes === "number"
         ? Math.max(1, Math.min(120, config.dreamStepIntervalMinutes))
         : DEFAULT_INSPIRATION_CONFIG.dreamStepIntervalMinutes,
+    dreamMaxIterations:
+      typeof config?.dreamMaxIterations === "number"
+        ? Math.max(1, Math.min(20, Math.floor(config.dreamMaxIterations)))
+        : DEFAULT_INSPIRATION_CONFIG.dreamMaxIterations,
   }
 }
 

@@ -71,6 +71,7 @@ export interface SettingsDraft {
   inspirationAutoDeepResearchEnabled: boolean
   inspirationDreamMinDurationMinutes: number
   inspirationDreamStepIntervalMinutes: number
+  inspirationDreamMaxIterations: number
 
   // UI
   uiLanguage: string

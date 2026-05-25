@@ -3,6 +3,7 @@ import type {
   InspirationEvidence,
   InspirationFeedback,
   InspirationComment,
+  InspirationAskMessage,
   InspirationItem,
   InspirationRun,
   InspirationSnapshot,
@@ -49,10 +50,40 @@ export async function loadInspirationSnapshot(projectPath: string): Promise<Insp
       items: items.map(normalizeItem),
       feedback: Array.isArray(parsed.feedback) ? parsed.feedback : [],
       comments: Array.isArray(parsed.comments) ? parsed.comments : [],
+      askMessages: Array.isArray(parsed.askMessages) ? parsed.askMessages : [],
     }
   } catch {
     return EMPTY_INSPIRATION_SNAPSHOT
   }
+}
+
+export async function loadInspirationAskMessages(
+  projectPath: string,
+  itemId: string,
+): Promise<InspirationAskMessage[]> {
+  const snapshot = await loadInspirationSnapshot(projectPath)
+  return (snapshot.askMessages ?? [])
+    .filter((message) => message.itemId === itemId)
+    .sort((a, b) => a.createdAt - b.createdAt)
+}
+
+export async function saveInspirationAskMessages(
+  projectPath: string,
+  itemId: string,
+  messages: InspirationAskMessage[],
+): Promise<InspirationSnapshot> {
+  const snapshot = await loadInspirationSnapshot(projectPath)
+  const otherMessages = (snapshot.askMessages ?? []).filter((message) => message.itemId !== itemId)
+  const itemMessages = messages
+    .filter((message) => message.itemId === itemId)
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .slice(-80)
+  const next = {
+    ...snapshot,
+    askMessages: [...otherMessages, ...itemMessages].slice(-4000),
+  }
+  await saveInspirationSnapshot(projectPath, next)
+  return next
 }
 
 function normalizeItem(item: InspirationItem): InspirationItem {
@@ -85,6 +116,7 @@ function normalizeItem(item: InspirationItem): InspirationItem {
     dreamInsights: Array.isArray(item.dreamInsights) ? item.dreamInsights : [],
     dreamOutputs: Array.isArray(item.dreamOutputs) ? item.dreamOutputs : [],
     dreamScore: typeof item.dreamScore === "number" ? item.dreamScore : undefined,
+    evolutionEvents: Array.isArray(item.evolutionEvents) ? item.evolutionEvents : [],
     enteredAt: item.enteredAt ?? createdAt,
     updatedAt: item.updatedAt ?? createdAt,
     evolutionCount: item.evolutionCount ?? 0,

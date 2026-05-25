@@ -209,10 +209,27 @@ export function InspirationSection({ draft, setDraft }: Props) {
               disabled={!draft.inspirationEnabled}
             />
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="inspiration-dream-max-iterations">
+              {t("settings.sections.inspiration.dreamMaxIterations", { defaultValue: "梦境迭代上限次数" })}
+            </Label>
+            <Input
+              id="inspiration-dream-max-iterations"
+              type="number"
+              min={1}
+              max={20}
+              value={draft.inspirationDreamMaxIterations}
+              onChange={(e) => {
+                const value = parseInt(e.target.value, 10)
+                if (!Number.isNaN(value)) setDraft("inspirationDreamMaxIterations", value)
+              }}
+              disabled={!draft.inspirationEnabled}
+            />
+          </div>
         </div>
         <p className="text-xs text-muted-foreground">
           {t("settings.sections.inspiration.dreamHelp", {
-            defaultValue: "主题梦境或每日梦境启动后，会持续扩散、补支撑并逐步收敛，最短运行 60 分钟。",
+            defaultValue: "主题梦境或每日梦境启动后，会持续扩散、补支撑并逐步收敛；达到迭代上限后会自动归纳最终结论。",
           })}
         </p>
       </div>

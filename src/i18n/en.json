@@ -165,9 +165,15 @@
       "dislike": "Dislike",
       "undislike": "Remove dislike",
       "reject": "Reject",
-      "deepResearch": "Send to Deep Research"
+      "deepResearch": "Send to Deep Research",
+      "continueDream": "Continue dream iteration",
+      "concludeDream": "Conclude dream",
+      "evolutionGraph": "View evolution graph",
+      "askAi": "Ask AI"
     },
     "comments": {
+      "recent": "User comments",
+      "more": "{{count}} more comments",
       "placeholder": "Add commentary for future evolution...",
       "dreamPlaceholder": "Add dream expansion notes or rebuild requests...",
       "submit": "Comment"
@@ -206,7 +212,7 @@
       "maturity": "Maturity L{{level}}",
       "task": "Task {{task}}",
       "status": "Status",
-      "dreamIterations": "Dream {{count}}/3",
+      "dreamIterations": "Dream {{count}}/{{max}}",
       "dreamMode": "Mode",
       "fragments": "{{count}} fragments",
       "dreamScore": "Dream score"
@@ -237,7 +243,42 @@
       "module": "This module is empty. Start its build first.",
       "outcomes": "No adopted creative outcomes yet."
     },
-    "runningCurrent": "Current module task: {{status}}"
+    "runningCurrent": "Current module task: {{status}}",
+    "evolution": {
+      "title": "Evolution Graph",
+      "description": "Review key changes and evidence chain for each iteration of “{{title}}”.",
+      "totalIterations": "Iterations",
+      "currentStage": "Current state",
+      "evidenceCount": "Evidence count",
+      "iteration": "Iteration {{count}}",
+      "score": "Score {{score}}",
+      "keyChanges": "Key changes",
+      "evidenceChain": "Evidence chain",
+      "noChanges": "No structured changes were recorded for this iteration.",
+      "noEvidence": "No evidence chain was recorded for this iteration.",
+      "types": {
+        "created": "Initial version",
+        "structure": "Structured",
+        "expand": "Expanded",
+        "validate": "Validated",
+        "mature": "Matured",
+        "dream": "Dream iteration",
+        "conclude": "Dream conclusion",
+        "feedback": "User feedback"
+      },
+      "currentDreamSnapshot": "Current dream snapshot",
+      "currentVersionSnapshot": "Current version snapshot",
+      "details": "Iteration details"
+    },
+    "ask": {
+      "title": "Ask AI",
+      "description": "Ask about “{{title}}” for explanation, context, or next steps.",
+      "empty": "Ask about the background, evidence, evolution, implementation path, risks, or next step for this idea, theme, or dream.",
+      "placeholder": "Ask AI about this item...",
+      "send": "Send",
+      "thinking": "Thinking...",
+      "noModel": "No usable LLM is configured. Configure a model in Settings first."
+    }
   },
   "lint": {
     "title": "Wiki Lint",

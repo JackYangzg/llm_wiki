@@ -159,6 +159,7 @@ interface InspirationConfig {
   autoDeepResearchEnabled: boolean
   dreamMinDurationMinutes: number
   dreamStepIntervalMinutes: number
+  dreamMaxIterations: number
 }
 
 /**
@@ -422,6 +423,7 @@ export const useWikiStore = create<WikiState>((set) => ({
     autoDeepResearchEnabled: false,
     dreamMinDurationMinutes: 60,
     dreamStepIntervalMinutes: 5,
+    dreamMaxIterations: 3,
   },
 
   sourceWatchConfig: DEFAULT_SOURCE_WATCH_CONFIG,

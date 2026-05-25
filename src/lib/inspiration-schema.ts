@@ -39,6 +39,24 @@ export interface InspirationEvidence {
   relevanceScore: number
 }
 
+export interface InspirationEvolutionEvent {
+  id: string
+  itemId: string
+  iteration: number
+  title: string
+  summary: string
+  changeType: "created" | "structure" | "expand" | "validate" | "mature" | "dream" | "conclude" | "feedback"
+  changedAt: number
+  updatedBy: "LLM" | "user" | "system"
+  stage?: IdeaStage
+  taskType?: IdeaTaskType
+  dreamStatus?: "dreaming" | "converging" | "done"
+  keyChanges: string[]
+  details?: string
+  evidenceChain: InspirationEvidence[]
+  score?: number
+}
+
 export interface DreamMaterial {
   id: string
   role: DreamMaterialRole
@@ -117,6 +135,7 @@ export interface InspirationItem {
   dreamInsights?: DreamInsight[]
   dreamOutputs?: DreamOutput[]
   dreamScore?: number
+  evolutionEvents?: InspirationEvolutionEvent[]
 }
 
 export interface InspirationRun {
@@ -158,11 +177,20 @@ export interface InspirationComment {
   createdAt: number
 }
 
+export interface InspirationAskMessage {
+  id: string
+  itemId: string
+  role: "user" | "assistant"
+  content: string
+  createdAt: number
+}
+
 export interface InspirationSnapshot {
   runs: InspirationRun[]
   items: InspirationItem[]
   feedback: InspirationFeedback[]
   comments: InspirationComment[]
+  askMessages: InspirationAskMessage[]
 }
 
 export interface InspirationSeed {
@@ -180,6 +208,7 @@ export const EMPTY_INSPIRATION_SNAPSHOT: InspirationSnapshot = {
   items: [],
   feedback: [],
   comments: [],
+  askMessages: [],
 }
 
 export function blankScores(partial: Partial<InspirationScores> = {}): InspirationScores {
