@@ -52,10 +52,11 @@ export function PaperResearchView() {
   const [candidates, setCandidates] = useState<PaperCandidate[]>([])
   const [notes, setNotes] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [candidateBusyIds, setCandidateBusyIds] = useState<string[]>([])
   const [page, setPage] = useState(0)
   const [scans, setScans] = useState<DailyScanEntry[]>([])
   const [expandedScanDate, setExpandedScanDate] = useState<string | null>(null)
-  const [pushingId, setPushingId] = useState<string | null>(null)
+  const [pushingKeys, setPushingKeys] = useState<string[]>([])
   const [scanningNow, setScanningNow] = useState(false)
   const [scanPages, setScanPages] = useState<Record<string, number>>({})
   const [expandedPaperGroup, setExpandedPaperGroup] = useState<string | null>(null)
@@ -67,6 +68,7 @@ export function PaperResearchView() {
   const projectPath = project ? normalizePath(project.path) : ""
   const totalPages = Math.max(1, Math.ceil(candidates.length / pageSize))
   const pageCandidates = candidates.slice(page * pageSize, (page + 1) * pageSize)
+  const candidateBusySet = useMemo(() => new Set(candidateBusyIds), [candidateBusyIds])
 
   const paperGroups = useMemo(() => {
     const groups: Record<string, FileNode[]> = {}
@@ -101,18 +103,26 @@ export function PaperResearchView() {
 
   const pushPaper = useCallback(async (paper: PaperCandidate, scanDate: string) => {
     if (!project) return
-    setPushingId(paper.id)
+    const key = `${scanDate}:${paper.id}`
+    if (pushingKeys.includes(key)) return
+    setPushingKeys((keys) => [...keys, key])
     try {
       await manualPushPaper(project, paper, llmConfig, scanDate)
+      setScans((current) => current.map((scan) => {
+        if (scan.date !== scanDate) return scan
+        const importedIds = new Set(scan.importedIds ?? [])
+        importedIds.add(paper.id)
+        return { ...scan, importedIds: [...importedIds] }
+      }))
       setFileTree(await listDirectory(project.path))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setPushingId(null)
+      setPushingKeys((keys) => keys.filter((item) => item !== key))
       await refresh()
       await loadScans()
     }
-  }, [llmConfig, project, refresh, loadScans, setFileTree])
+  }, [llmConfig, project, pushingKeys, refresh, loadScans, setFileTree])
 
   const triggerScan = useCallback(async () => {
     if (!project) return
@@ -197,17 +207,19 @@ export function PaperResearchView() {
 
   const importCandidate = useCallback(async (candidate: PaperCandidate) => {
     if (!project) return
-    setBusy(candidate.id)
+    if (candidateBusyIds.includes(candidate.id)) return
+    setCandidateBusyIds((ids) => [...ids, candidate.id])
+    setError(null)
     try {
-      await importCandidatePaper(project, candidate, llmConfig, paperResearchConfig)
+      await importCandidatePaper(project, candidate, llmConfig, paperResearchConfig, { forceAnalyze: true })
       setFileTree(await listDirectory(project.path))
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setBusy(null)
+      setCandidateBusyIds((ids) => ids.filter((id) => id !== candidate.id))
     }
-  }, [llmConfig, paperResearchConfig, project, refresh, setFileTree])
+  }, [candidateBusyIds, llmConfig, paperResearchConfig, project, refresh, setFileTree])
 
   if (!project) {
     return (
@@ -312,9 +324,9 @@ export function PaperResearchView() {
                       variant="outline"
                       size="sm"
                       onClick={() => importCandidate(candidate)}
-                      disabled={!!busy}
+                      disabled={candidateBusySet.has(candidate.id)}
                     >
-                      {busy === candidate.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                      {candidateBusySet.has(candidate.id) ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
                       {t("paperResearch.collectAndAnalyze")}
                     </Button>
                   </div>
@@ -533,6 +545,8 @@ export function PaperResearchView() {
                           <>
                             {scanPagePapers.map((paper) => {
                               const isImported = scan.importedIds?.includes(paper.id)
+                              const pushKey = `${scan.date}:${paper.id}`
+                              const isPushing = pushingKeys.includes(pushKey)
                               return (
                               <div
                                 key={paper.id}
@@ -558,9 +572,9 @@ export function PaperResearchView() {
                                   variant="outline"
                                   size="sm"
                                   onClick={() => pushPaper(paper, scan.date)}
-                                  disabled={pushingId === paper.id || isImported}
+                                  disabled={isPushing || isImported}
                                 >
-                                  {pushingId === paper.id ? (
+                                  {isPushing ? (
                                     <Loader2 className="h-4 w-4 animate-spin" />
                                   ) : isImported ? (
                                     <CheckCircle2 className="h-4 w-4 text-green-600" />

@@ -3,6 +3,8 @@ import {
   Bookmark,
   CheckCircle2,
   Brain,
+  ChevronLeft,
+  ChevronRight,
   FlaskConical,
   GitBranch,
   Heart,
@@ -45,6 +47,8 @@ const TABS: { id: InspirationTab; label: string; icon: typeof Lightbulb }[] = [
   { id: "dreams", label: "inspiration.tabs.dreamLab", icon: Moon },
   { id: "feedback", label: "inspiration.tabs.outcomes", icon: Brain },
 ]
+
+const ITEMS_PER_PAGE = 10
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleString()
@@ -796,6 +800,7 @@ export function InspirationView() {
   const [selectedDreamSeeds, setSelectedDreamSeeds] = useState<string[]>([])
   const [evolutionItem, setEvolutionItem] = useState<InspirationItem | null>(null)
   const [askItem, setAskItem] = useState<InspirationItem | null>(null)
+  const [pageByTab, setPageByTab] = useState<Partial<Record<InspirationTab, number>>>({})
 
   const feedbackState = useMemo(() => {
     const liked = new Set<string>()
@@ -839,12 +844,21 @@ export function InspirationView() {
     if (project) void load(project.path)
   }, [load, project])
 
+  const factoryItems = useMemo(() => items.filter((item) =>
+    item.origin === "factory" &&
+    item.type === "idea" &&
+    item.reviewState !== "formal" &&
+    item.reviewState !== "rejected" &&
+    item.ideaStage !== "adopted" &&
+    item.ideaStage !== "archived",
+  ), [items])
+
   const visibleItems = useMemo(() => {
-    if (tab === "daily") return items.filter((item) => item.origin === "factory" && item.reviewState !== "formal" && item.reviewState !== "rejected").slice(0, 24)
+    if (tab === "daily") return factoryItems
     if (tab === "themes") return items.filter((item) => item.origin === "theme_lab" && item.reviewState !== "formal" && item.reviewState !== "rejected")
     if (tab === "dreams") return items.filter((item) => item.origin === "dream" && item.reviewState !== "formal" && item.reviewState !== "rejected")
     return items.filter((item) => item.reviewState === "formal" || item.origin === "adopted")
-  }, [items, tab])
+  }, [factoryItems, items, tab])
 
   const factoryStageStats = useMemo(() => {
     const stats: Record<IdeaStage, number> = {
@@ -856,13 +870,33 @@ export function InspirationView() {
       adopted: 0,
       archived: 0,
     }
-    for (const item of items) {
-      if (item.origin !== "factory" || item.type !== "idea") continue
+    for (const item of factoryItems) {
       const stage = item.ideaStage ?? (item.reviewState === "formal" ? "adopted" : item.reviewState === "rejected" ? "archived" : "candidate")
       stats[stage] += 1
     }
     return stats
-  }, [items])
+  }, [factoryItems])
+
+  const currentPage = pageByTab[tab] ?? 0
+  const paginatedTabs = tab === "daily" || tab === "themes" || tab === "dreams"
+  const totalItemPages = Math.max(1, Math.ceil(visibleItems.length / ITEMS_PER_PAGE))
+  const safePage = Math.min(currentPage, totalItemPages - 1)
+  const pageItems = paginatedTabs
+    ? visibleItems.slice(safePage * ITEMS_PER_PAGE, (safePage + 1) * ITEMS_PER_PAGE)
+    : visibleItems
+
+  useEffect(() => {
+    if (currentPage > totalItemPages - 1) {
+      setPageByTab((prev) => ({ ...prev, [tab]: totalItemPages - 1 }))
+    }
+  }, [currentPage, tab, totalItemPages])
+
+  function setCurrentPage(nextPage: number) {
+    setPageByTab((prev) => ({
+      ...prev,
+      [tab]: Math.max(0, Math.min(totalItemPages - 1, nextPage)),
+    }))
+  }
 
   async function handleRunDaily() {
     if (!project || runningByType.daily) return
@@ -1113,32 +1147,54 @@ export function InspirationView() {
             <p>{tab === "feedback" ? t("inspiration.empty.outcomes") : t("inspiration.empty.module")}</p>
           </div>
         ) : (
-          <div className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-3">
-            {visibleItems.filter(Boolean).map((item) => (
-              <ItemCard
-                key={item.id}
-                item={item}
-                onOpen={handleOpen}
-                onFeedback={handleFeedback}
-                onResearch={handleResearch}
-                onIterate={handleIterate}
-                onDreamContinue={handleDreamContinue}
-                onDreamConclude={handleDreamConclude}
-                onShowEvolution={setEvolutionItem}
-                onAsk={setAskItem}
-                dreamMaxIterations={inspirationConfig.dreamMaxIterations}
-                isLiked={feedbackState.liked.has(item.id)}
-                isSaved={feedbackState.saved.has(item.id)}
-                isAdopted={feedbackState.adopted.has(item.id)}
-                isDisliked={feedbackState.disliked.has(item.id)}
-                isEvolving={item.lifecycleStatus === "evolving"}
-                comments={commentsByItem.get(item.id) ?? []}
-                commentDraft={commentDrafts[item.id] ?? ""}
-                onCommentDraft={handleCommentDraft}
-                onComment={handleComment}
-              />
-            ))}
-          </div>
+          <>
+            {paginatedTabs && totalItemPages > 1 && (
+              <div className="mb-3 flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                <span>
+                  {t("inspiration.pagination.summary", {
+                    page: safePage + 1,
+                    total: totalItemPages,
+                    count: visibleItems.length,
+                    defaultValue: `Page ${safePage + 1}/${totalItemPages} · ${visibleItems.length} items`,
+                  })}
+                </span>
+                <div className="flex items-center gap-1">
+                  <Button variant="outline" size="icon-xs" onClick={() => setCurrentPage(safePage - 1)} disabled={safePage === 0}>
+                    <ChevronLeft />
+                  </Button>
+                  <Button variant="outline" size="icon-xs" onClick={() => setCurrentPage(safePage + 1)} disabled={safePage >= totalItemPages - 1}>
+                    <ChevronRight />
+                  </Button>
+                </div>
+              </div>
+            )}
+            <div className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-3">
+              {pageItems.filter(Boolean).map((item) => (
+                <ItemCard
+                  key={item.id}
+                  item={item}
+                  onOpen={handleOpen}
+                  onFeedback={handleFeedback}
+                  onResearch={handleResearch}
+                  onIterate={handleIterate}
+                  onDreamContinue={handleDreamContinue}
+                  onDreamConclude={handleDreamConclude}
+                  onShowEvolution={setEvolutionItem}
+                  onAsk={setAskItem}
+                  dreamMaxIterations={inspirationConfig.dreamMaxIterations}
+                  isLiked={feedbackState.liked.has(item.id)}
+                  isSaved={feedbackState.saved.has(item.id)}
+                  isAdopted={feedbackState.adopted.has(item.id)}
+                  isDisliked={feedbackState.disliked.has(item.id)}
+                  isEvolving={item.lifecycleStatus === "evolving"}
+                  comments={commentsByItem.get(item.id) ?? []}
+                  commentDraft={commentDrafts[item.id] ?? ""}
+                  onCommentDraft={handleCommentDraft}
+                  onComment={handleComment}
+                />
+              ))}
+            </div>
+          </>
         )}
       </div>
       <EvolutionGraphDialog

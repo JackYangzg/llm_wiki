@@ -233,7 +233,7 @@ export async function runPaperMonitorScan(
     )
 
     if (config.autoPushToKnowledge) {
-      autoPushPapers(projectPath, entry, llmConfig)
+      void autoPushPapers(projectPath, entry, llmConfig)
     }
 
     return entry
@@ -264,8 +264,9 @@ async function autoPushPapers(
     for (const paper of entry.papers) {
       if (entry.importedIds.includes(paper.id)) continue
       try {
-        await importCandidatePaper(project, paper, llmConfig, paperConfig)
+        await importCandidatePaper(project, paper, llmConfig, paperConfig, { forceAnalyze: true })
         entry.importedIds.push(paper.id)
+        await persistImportedIds(projectPath, entry.date, [paper.id])
         addLog(
           "论文自动入库",
           `已导入: ${paper.title}`,
@@ -277,7 +278,6 @@ async function autoPushPapers(
         )
       }
     }
-    await persistImportedIds(projectPath, entry.date, entry.importedIds)
   } catch (err) {
     console.warn("[paper-monitor] Failed to open project for auto-push:", err)
   }
@@ -310,7 +310,7 @@ export async function manualPushPaper(
     importDestination: "papers",
     literatureQueryCount: 3,
   }
-  await importCandidatePaper(project, paper, llmConfig, paperConfig)
+  await importCandidatePaper(project, paper, llmConfig, paperConfig, { forceAnalyze: true })
   await persistImportedIds(project.path, scanDate, [paper.id])
 }
 

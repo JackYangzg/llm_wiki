@@ -51,6 +51,8 @@ interface PaperSearchWindow {
   toArxiv: string
 }
 
+const PDF_DOWNLOAD_TIMEOUT_MS = 20_000
+
 export const DEFAULT_PAPER_RESEARCH_CONFIG: PaperResearchConfig = {
   autoAnalyzeOnImport: true,
   importDestination: "papers",
@@ -165,6 +167,7 @@ export async function importCandidatePaper(
   candidate: PaperCandidate,
   llmConfig: LlmConfig,
   config: PaperResearchConfig,
+  options: { forceAnalyze?: boolean } = {},
 ): Promise<string[]> {
   const root = normalizePath(project.path)
   await ensurePaperResearchFolders(root)
@@ -172,15 +175,23 @@ export async function importCandidatePaper(
   await createDirectory(baseDir)
 
   let importedPath: string
-  if (candidate.pdfUrl) {
-    importedPath = await downloadCandidatePdf(baseDir, candidate)
-    preprocessFile(importedPath).catch(() => {})
+  const pdfUrls = candidatePdfUrls(candidate)
+  if (pdfUrls.length > 0) {
+    try {
+      importedPath = await downloadCandidatePdf(baseDir, candidate, pdfUrls)
+      preprocessFile(importedPath).catch(() => {})
+    } catch (err) {
+      importedPath = await writeCandidateMetadata(baseDir, candidate, errorMessage(err))
+    }
   } else {
     importedPath = await writeCandidateMetadata(baseDir, candidate)
   }
 
-  if (config.autoAnalyzeOnImport) {
-    await analyzeResearchPapers(project, [importedPath], llmConfig, config)
+  if (options.forceAnalyze || config.autoAnalyzeOnImport) {
+    const taskIds = await analyzeResearchPapers(project, [importedPath], llmConfig, config)
+    if (options.forceAnalyze && taskIds.length === 0) {
+      throw new Error("No ingest task was queued. Check that an LLM provider is configured and the current project queue is active.")
+    }
   }
   return [importedPath]
 }
@@ -521,19 +532,49 @@ function datePartsToIso(parts: number[] | undefined): string | undefined {
   return `${year}-${month}-${day}`
 }
 
-async function downloadCandidatePdf(dir: string, candidate: PaperCandidate): Promise<string> {
-  if (!candidate.pdfUrl) throw new Error("Candidate has no PDF URL")
+async function downloadCandidatePdf(dir: string, candidate: PaperCandidate, urls = candidatePdfUrls(candidate)): Promise<string> {
+  if (urls.length === 0) throw new Error("Candidate has no PDF URL")
   const httpFetch = await getHttpFetch()
-  const res = await httpFetch(candidate.pdfUrl, { headers: { Accept: "application/pdf,*/*" } })
-  if (!res.ok) throw new Error(`PDF download failed (${res.status})`)
-  const bytes = new Uint8Array(await res.arrayBuffer())
+  const failures: string[] = []
+  let bytes: Uint8Array | null = null
+
+  for (const url of urls) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), PDF_DOWNLOAD_TIMEOUT_MS)
+    try {
+      const res = await httpFetch(url, {
+        headers: pdfDownloadHeaders(url, candidate),
+        signal: controller.signal,
+      })
+      if (!res.ok) {
+        failures.push(`${url}: ${res.status}`)
+        continue
+      }
+      bytes = new Uint8Array(await res.arrayBuffer())
+      if (!looksLikePdf(bytes, res.headers.get("content-type"))) {
+        failures.push(`${url}: response was not a PDF`)
+        bytes = null
+        continue
+      }
+      break
+    } catch (err) {
+      failures.push(`${url}: ${errorMessage(err)}`)
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  if (!bytes) {
+    throw new Error(`PDF download failed (${failures.join("; ")})`)
+  }
+
   const fileName = `${slugify(candidate.title || candidate.arxivId || "paper")}.pdf`
   const path = await uniquePath(dir, fileName)
   await writeBinaryFile(path, bytes)
   return path
 }
 
-async function writeCandidateMetadata(dir: string, candidate: PaperCandidate): Promise<string> {
+async function writeCandidateMetadata(dir: string, candidate: PaperCandidate, downloadError?: string): Promise<string> {
   const fileName = `${slugify(candidate.title || candidate.s2PaperId || "paper")}.md`
   const path = await uniquePath(dir, fileName)
   const content = [
@@ -560,10 +601,73 @@ async function writeCandidateMetadata(dir: string, candidate: PaperCandidate): P
     `- Source: ${candidate.source}`,
     candidate.arxivUrl ? `- arXiv: ${candidate.arxivUrl}` : "",
     candidate.doi ? `- DOI: ${candidate.doi}` : "",
+    candidate.pdfUrl ? `- PDF: ${candidate.pdfUrl}` : "",
+    downloadError ? `\n## PDF Download\n\nPDF download was blocked or unavailable, so this metadata record was imported instead.\n\n\`${downloadError.replace(/`/g, "'")}\`\n` : "",
     "",
   ].filter(Boolean).join("\n")
   await writeFile(path, content)
   return path
+}
+
+function candidatePdfUrls(candidate: PaperCandidate): string[] {
+  const urls = [
+    candidate.pdfUrl,
+    arxivPdfUrlFromId(candidate.arxivId),
+    arxivPdfUrlFromUrl(candidate.arxivUrl),
+  ].filter((url): url is string => Boolean(url?.trim()))
+
+  const seen = new Set<string>()
+  return urls.filter((url) => {
+    const normalized = normalizePdfCandidateUrl(url)
+    if (seen.has(normalized)) return false
+    seen.add(normalized)
+    return true
+  })
+}
+
+function normalizePdfCandidateUrl(url: string): string {
+  return url.trim().replace(/\/+$/, "")
+}
+
+function arxivPdfUrlFromId(arxivId: string | undefined): string | undefined {
+  const normalized = arxivId?.trim().replace(/\.pdf$/i, "").replace(/v\d+$/i, "")
+  return normalized ? `https://arxiv.org/pdf/${normalized}.pdf` : undefined
+}
+
+function arxivPdfUrlFromUrl(arxivUrl: string | undefined): string | undefined {
+  const id = extractArxivIdFromDoiOrUrl(arxivUrl) || (arxivUrl ? extractArxivId(arxivUrl) : undefined)
+  return arxivPdfUrlFromId(id)
+}
+
+function pdfDownloadHeaders(url: string, candidate: PaperCandidate): Record<string, string> {
+  return {
+    Accept: "application/pdf,application/octet-stream;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
+    Referer: pdfReferer(url, candidate),
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36 llm-wiki",
+  }
+}
+
+function pdfReferer(url: string, candidate: PaperCandidate): string {
+  if (candidate.arxivUrl && url.includes("arxiv.org")) return candidate.arxivUrl
+  try {
+    return new URL(url).origin
+  } catch {
+    return "https://scholar.google.com/"
+  }
+}
+
+function looksLikePdf(bytes: Uint8Array, contentType: string | null): boolean {
+  if (bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) {
+    return true
+  }
+  if (!contentType) return bytes.length > 0
+  const normalized = contentType.toLowerCase()
+  return normalized.includes("application/pdf") || normalized.includes("application/octet-stream")
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
 }
 
 function extractArxivId(value: string): string | undefined {

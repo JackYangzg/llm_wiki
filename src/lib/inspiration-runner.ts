@@ -587,6 +587,88 @@ function useProjectPathFromSeeds(seeds: InspirationSeed[]): string {
   return index >= 0 ? normalizePath(first).slice(0, index) : ""
 }
 
+function relevanceTokens(text: string): Set<string> {
+  const normalized = text.toLowerCase()
+  const tokens = new Set<string>()
+  for (const token of normalized.split(/[^\p{L}\p{N}]+/u).map((part) => part.trim()).filter((part) => part.length >= 2)) {
+    tokens.add(token)
+  }
+  const cjk = normalized.match(/[\u4e00-\u9fff]+/gu) ?? []
+  for (const segment of cjk) {
+    for (let i = 0; i < segment.length - 1; i++) {
+      tokens.add(segment.slice(i, i + 2))
+    }
+  }
+  return tokens
+}
+
+function tokenOverlapScore(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0
+  let overlap = 0
+  for (const token of a) {
+    if (b.has(token)) overlap++
+  }
+  return overlap / Math.min(a.size, b.size)
+}
+
+function itemRelevanceText(item: InspirationItem): string {
+  return [
+    item.title,
+    item.summary,
+    item.themeKey,
+    item.body,
+    ...(item.relatedEntities ?? []),
+    ...(item.reasoningPath ?? []),
+    ...(item.evidence ?? []).flatMap((evidence) => [evidence.title, evidence.snippet, evidence.pagePath]),
+  ].filter(Boolean).join("\n")
+}
+
+function seedRelevanceText(seed: InspirationSeed): string {
+  return [seed.title, seed.type, seed.snippet, seed.path].filter(Boolean).join("\n")
+}
+
+function recentFactoryKnowledgeSeeds(snapshot: { runs: InspirationRun[] } | null, seeds: InspirationSeed[]): InspirationSeed[] {
+  const latestFactoryRunAt = snapshot?.runs
+    .filter((run) => run.runType === "daily" || run.runType === "factory")
+    .reduce((latest, run) => Math.max(latest, run.finishedAt ?? run.startedAt ?? 0), 0) ?? 0
+  const recent = seeds.filter((seed) => (seed.modifiedAt ?? 0) > latestFactoryRunAt)
+  return recent.length > 0
+    ? recent
+    : [...seeds].sort((a, b) => (b.modifiedAt ?? 0) - (a.modifiedAt ?? 0)).slice(0, 24)
+}
+
+function relevantFactoryIdeaIds(snapshot: { items: InspirationItem[] } | null, seeds: InspirationSeed[]): string[] {
+  if (!snapshot || seeds.length === 0) return []
+  const seedTexts = seeds.map((seed) => ({
+    seed,
+    tokens: relevanceTokens(seedRelevanceText(seed)),
+    path: normalizePath(seed.path),
+  }))
+  const ids: string[] = []
+  for (const item of snapshot.items) {
+    if (
+      item.origin !== "factory" ||
+      item.type !== "idea" ||
+      item.reviewState === "formal" ||
+      item.reviewState === "rejected" ||
+      item.ideaStage === "adopted" ||
+      item.ideaStage === "archived" ||
+      !item.markdownPath
+    ) {
+      continue
+    }
+    const evidencePaths = new Set((item.evidence ?? []).map((evidence) => normalizePath(evidence.pagePath)))
+    const itemTokens = relevanceTokens(itemRelevanceText(item))
+    const relevant = seedTexts.some(({ tokens, path }) =>
+      evidencePaths.has(path) ||
+      tokenOverlapScore(itemTokens, tokens) >= 0.18 ||
+      [...tokens].some((token) => token.length >= 4 && itemTokens.has(token)),
+    )
+    if (relevant) ids.push(item.id)
+  }
+  return ids
+}
+
 export async function runInspiration(
   projectPath: string,
   llmConfig: LlmConfig,
@@ -626,7 +708,12 @@ export async function runInspiration(
 
   let candidates: InspirationItem[] = []
   if (runType === "daily") {
-    await evolveIdeas(pp, llmConfig, 4).catch(() => {})
+    const snapshotBeforeEvolution = await loadInspirationSnapshot(pp).catch(() => null)
+    const changedKnowledgeSeeds = recentFactoryKnowledgeSeeds(snapshotBeforeEvolution, seeds)
+    const relevantIdeaIds = relevantFactoryIdeaIds(snapshotBeforeEvolution, changedKnowledgeSeeds)
+    if (relevantIdeaIds.length > 0) {
+      await evolveIdeas(pp, llmConfig, relevantIdeaIds.length, relevantIdeaIds).catch(() => {})
+    }
     const snapshot = await loadInspirationSnapshot(pp).catch(() => null)
     const existingIdeaContext = snapshot?.items
       .filter((item) => item.origin === "factory" && item.type === "idea" && item.reviewState !== "formal" && item.reviewState !== "rejected")

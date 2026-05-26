@@ -209,6 +209,7 @@ export function renderInspirationMarkdown(item: InspirationItem): string {
     `title: ${yamlString(item.title)}`,
     `strategy: ${item.strategy}`,
     `run_id: ${item.runId}`,
+    `created_at: ${created}`,
     `generated_at: ${created}`,
     `entered_at: ${entered}`,
     `updated_at: ${updated}`,
@@ -268,20 +269,28 @@ export async function saveInspirationItems(
 
   for (const item of items) {
     const prefix = item.type === "theme" ? "theme" : item.type
-    const markdownPath = item.type === "idea"
-      ? joinPath(pp, ideasPath, `${prefix}-${todaySlug(new Date(item.createdAt))}-${slugifyTitle(item.title)}.md`)
+    const now = Date.now()
+    const fallbackCreatedAt = item.createdAt ?? now
+    const markdownPath = item.markdownPath || (item.type === "idea"
+      ? joinPath(pp, ideasPath, `${prefix}-${todaySlug(new Date(fallbackCreatedAt))}-${slugifyTitle(item.title)}.md`)
       : joinPath(
         pp,
         "wiki/inspirations",
         item.type === "theme" ? "themes" : "dreams",
-        `${prefix}-${todaySlug(new Date(item.createdAt))}-${slugifyTitle(item.title)}.md`,
-      )
-    const now = Date.now()
+        `${prefix}-${todaySlug(new Date(fallbackCreatedAt))}-${slugifyTitle(item.title)}.md`,
+      ))
+    const existingMarkdown = await fileExists(markdownPath)
+      .then((exists) => (exists ? readFile(markdownPath) : ""))
+      .catch(() => "")
+    const existingCreatedAt = frontmatterDateMs(existingMarkdown, "created_at")
+      ?? frontmatterDateMs(existingMarkdown, "generated_at")
+    const existingEnteredAt = frontmatterDateMs(existingMarkdown, "entered_at")
     const withPath = {
       ...item,
       markdownPath,
-      enteredAt: item.enteredAt ?? item.createdAt ?? now,
-      updatedAt: item.updatedAt ?? item.createdAt ?? now,
+      createdAt: existingCreatedAt ?? fallbackCreatedAt,
+      enteredAt: existingEnteredAt ?? item.enteredAt ?? existingCreatedAt ?? fallbackCreatedAt,
+      updatedAt: item.updatedAt ?? existingCreatedAt ?? fallbackCreatedAt,
       evolutionCount: item.evolutionCount ?? 0,
     }
     await writeFile(markdownPath, renderInspirationMarkdown(withPath))
@@ -290,6 +299,17 @@ export async function saveInspirationItems(
 
   await writeDailySummary(pp, saved)
   return saved
+}
+
+function frontmatterDateMs(markdown: string, key: string): number | undefined {
+  if (!markdown.startsWith("---")) return undefined
+  const end = markdown.indexOf("\n---", 3)
+  if (end < 0) return undefined
+  const match = markdown.slice(0, end).match(new RegExp(`^${key}:\\s*(.+)$`, "m"))
+  const raw = match?.[1]?.trim().replace(/^["']|["']$/g, "")
+  if (!raw) return undefined
+  const parsed = Date.parse(raw)
+  return Number.isFinite(parsed) ? parsed : undefined
 }
 
 async function writeDailySummary(projectPath: string, items: InspirationItem[]): Promise<void> {
