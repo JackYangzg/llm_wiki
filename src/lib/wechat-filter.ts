@@ -17,7 +17,7 @@ export interface FilterResult {
 
 export const DEFAULT_FILTER_CONFIG: WechatFilterConfig = {
   mode: "both",
-  triggerPrefix: "进知识库分析",
+  triggerPrefix: "/kb",
 }
 
 // ── Knowledge value judge ─────────────────────────────────────────────────

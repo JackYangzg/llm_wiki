@@ -13,6 +13,7 @@ import type { WechatMessage } from "@/lib/wechat-login"
  * `chat_completions` for backward compatibility with pre-0.3.7 configs.
  */
 export type CustomApiMode = "chat_completions" | "anthropic_messages"
+export type AzureModelFamily = "auto" | "gpt5"
 export type ReasoningMode = "auto" | "off" | "low" | "medium" | "high" | "max" | "custom"
 
 export interface ReasoningConfig {
@@ -21,17 +22,19 @@ export interface ReasoningConfig {
 }
 
 interface LlmConfig {
-  provider: "openai" | "anthropic" | "google" | "ollama" | "custom" | "minimax" | "claude-code" | "codex-cli"
+  provider: "openai" | "anthropic" | "google" | "azure" | "ollama" | "custom" | "minimax" | "claude-code" | "codex-cli"
   apiKey: string
   model: string
   ollamaUrl: string
   customEndpoint: string
+  azureApiVersion?: string
+  azureModelFamily?: AzureModelFamily
   maxContextSize: number // max context window in characters
   apiMode?: CustomApiMode
   reasoning?: ReasoningConfig
 }
 
-export type SearchProvider = "tavily" | "serpapi" | "searxng" | "minimax" | "none"
+export type SearchProvider = "tavily" | "serpapi" | "searxng" | "minimax" | "ollama" | "none"
 export type SerpApiEngine =
   | "google"
   | "google_news"
@@ -62,6 +65,7 @@ export interface SearchProviderOverride {
   searXngUrl?: string
   searXngCategories?: SearXngCategory[]
   minimaxRegion?: string
+  ollamaUrl?: string
 }
 
 export type SearchProviderConfigs = Partial<Record<Exclude<SearchProvider, "none">, SearchProviderOverride>>
@@ -73,6 +77,7 @@ interface SearchApiConfig {
   searXngUrl?: string
   searXngCategories?: SearXngCategory[]
   minimaxRegion?: string
+  ollamaUrl?: string
   providerConfigs?: SearchProviderConfigs
 }
 
@@ -202,6 +207,8 @@ interface MultimodalConfig {
   model: string
   ollamaUrl: string
   customEndpoint: string
+  azureApiVersion?: string
+  azureModelFamily?: AzureModelFamily
   apiMode?: CustomApiMode
   /** Max parallel caption requests during ingest. >=1. */
   concurrency: number
@@ -246,6 +253,8 @@ export interface ProviderOverride {
   apiKey?: string
   model?: string
   baseUrl?: string           // customEndpoint for custom presets, ollamaUrl for ollama
+  azureApiVersion?: string
+  azureModelFamily?: AzureModelFamily
   apiMode?: CustomApiMode
   maxContextSize?: number
   reasoning?: ReasoningConfig
@@ -348,6 +357,7 @@ export const useWikiStore = create<WikiState>((set) => ({
     model: "",
     ollamaUrl: "http://localhost:11434",
     customEndpoint: "",
+    azureApiVersion: "2024-10-21",
     reasoning: { mode: "auto" },
   },
   providerConfigs: {},
@@ -391,6 +401,7 @@ export const useWikiStore = create<WikiState>((set) => ({
     model: "",
     ollamaUrl: "http://localhost:11434",
     customEndpoint: "",
+    azureApiVersion: "2024-10-21",
     apiMode: "chat_completions",
     concurrency: 4,
   },

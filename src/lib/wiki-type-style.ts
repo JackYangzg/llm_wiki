@@ -41,6 +41,12 @@ export const WIKI_TYPE_STYLES: Record<string, WikiTypeStyle> = {
     chipClass: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
     dotClass: "bg-emerald-500",
   },
+  idea: {
+    label: "Idea",
+    icon: Lightbulb,
+    chipClass: "bg-pink-500/15 text-pink-700 dark:text-pink-300",
+    dotClass: "bg-pink-500",
+  },
   query: {
     label: "Query",
     icon: HelpCircle,
@@ -64,6 +70,12 @@ export const WIKI_TYPE_STYLES: Record<string, WikiTypeStyle> = {
     icon: TrendingUp,
     chipClass: "bg-purple-500/15 text-purple-700 dark:text-purple-300",
     dotClass: "bg-purple-500",
+  },
+  methodology: {
+    label: "Methodology",
+    icon: BookOpen,
+    chipClass: "bg-teal-500/15 text-teal-700 dark:text-teal-300",
+    dotClass: "bg-teal-500",
   },
   event: {
     label: "Event",
