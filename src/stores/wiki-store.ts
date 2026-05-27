@@ -336,6 +336,7 @@ interface WikiState {
   setWechatPanelOpen: (open: boolean) => void
   setWechatUnreadCount: (delta: number) => void
   resetWechatUnread: () => void
+  setWechatMessages: (msgs: WechatMessage[]) => void
   addWechatMessages: (msgs: WechatMessage[]) => void
   updateWechatMessage: (msgId: string, patch: Partial<WechatMessage>) => void
   clearWechatMessages: () => void
@@ -480,6 +481,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   setWechatPanelOpen: (wechatPanelOpen) => set({ wechatPanelOpen }),
   setWechatUnreadCount: (delta) => set((s) => ({ wechatUnreadCount: s.wechatUnreadCount + delta })),
   resetWechatUnread: () => set({ wechatUnreadCount: 0 }),
+  setWechatMessages: (msgs) => set({ wechatMessages: msgs.slice(-500) }),
   addWechatMessages: (msgs) =>
     set((s) => {
       const seen = new Set(s.wechatMessages.map((m) => m.msgId))

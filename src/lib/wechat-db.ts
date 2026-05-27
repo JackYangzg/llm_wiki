@@ -20,8 +20,14 @@ export interface WechatProcessedMessage {
 
 // ── Persistence ───────────────────────────────────────────────────────────
 
-function dbPath(projectPath: string): string {
-  return `${normalizePath(projectPath)}/.llm-wiki/wechat-import-db.json`
+function accountSuffix(accountId?: string): string {
+  if (!accountId) return ""
+  const safe = accountId.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-|-$/g, "")
+  return safe ? `-${safe}` : ""
+}
+
+function dbPath(projectPath: string, accountId?: string): string {
+  return `${normalizePath(projectPath)}/.llm-wiki/wechat-import-db${accountSuffix(accountId)}.json`
 }
 
 const EMPTY_DB: WechatImportDb = {
@@ -29,9 +35,9 @@ const EMPTY_DB: WechatImportDb = {
   processedMessages: {},
 }
 
-export async function loadWechatDb(projectPath: string): Promise<WechatImportDb> {
+export async function loadWechatDb(projectPath: string, accountId?: string): Promise<WechatImportDb> {
   try {
-    const raw = await readFile(dbPath(projectPath))
+    const raw = await readFile(dbPath(projectPath, accountId))
     return { ...EMPTY_DB, ...JSON.parse(raw) }
   } catch {
     return { ...EMPTY_DB }
@@ -41,9 +47,10 @@ export async function loadWechatDb(projectPath: string): Promise<WechatImportDb>
 export async function saveWechatDb(
   projectPath: string,
   db: WechatImportDb,
+  accountId?: string,
 ): Promise<void> {
   try {
-    await writeFile(dbPath(projectPath), JSON.stringify(db, null, 2))
+    await writeFile(dbPath(projectPath, accountId), JSON.stringify(db, null, 2))
   } catch {
     // non-critical
   }
@@ -75,24 +82,25 @@ export function updateSyncKey(db: WechatImportDb, key: string): WechatImportDb {
 
 // ── Chat Message Persistence ────────────────────────────────────────────────
 
-function chatMessagesPath(projectPath: string): string {
-  return `${normalizePath(projectPath)}/.llm-wiki/wechat-messages.json`
+function chatMessagesPath(projectPath: string, accountId?: string): string {
+  return `${normalizePath(projectPath)}/.llm-wiki/wechat-messages${accountSuffix(accountId)}.json`
 }
 
 export async function saveChatMessages(
   projectPath: string,
   messages: unknown[],
+  accountId?: string,
 ): Promise<void> {
   try {
-    await writeFile(chatMessagesPath(projectPath), JSON.stringify(messages))
+    await writeFile(chatMessagesPath(projectPath, accountId), JSON.stringify(messages))
   } catch {
     // non-critical
   }
 }
 
-export async function loadChatMessages(projectPath: string): Promise<unknown[]> {
+export async function loadChatMessages(projectPath: string, accountId?: string): Promise<unknown[]> {
   try {
-    const raw = await readFile(chatMessagesPath(projectPath))
+    const raw = await readFile(chatMessagesPath(projectPath, accountId))
     return JSON.parse(raw)
   } catch {
     return []

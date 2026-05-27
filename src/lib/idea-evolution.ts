@@ -3,6 +3,7 @@ import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { streamChat } from "@/lib/llm-client"
 import { loadInspirationSnapshot, saveInspirationSnapshot } from "@/lib/inspiration-persist"
 import { collectInspirationSeeds } from "@/lib/theme-mining"
+import { methodologiesForStrategy, methodologyExecutionPlan, methodologyNames } from "@/lib/creative-pipeline"
 import { addLog } from "@/stores/log-store"
 import type { IdeaStage, IdeaTaskType, InspirationItem, InspirationSnapshot } from "@/lib/inspiration-schema"
 import type { LlmConfig } from "@/stores/wiki-store"
@@ -43,6 +44,7 @@ async function llmEvolutionNote(
     ].join("\n")
   }
 
+  const methodologies = item.methodologies?.length ? item.methodologies : methodologiesForStrategy(item.strategy)
   let output = ""
   await streamChat(
     llmConfig,
@@ -52,9 +54,11 @@ async function llmEvolutionNote(
         content: [
           "You evolve an existing evidence-grounded idea without overwriting the user's text.",
           "This can be an idea or a theme. Use broad existing wiki knowledge and graph-neighbor evidence.",
-          "Treat this as an Idea Factory pipeline step: structure, expand, score, validate, or mature the idea depending on its current stage.",
+          "Treat this as a unified Creative Item iteration: Generate → Critique → Improve → Score → Route.",
+          `You must execute these methodologies, not merely name them: ${methodologyNames(methodologies)}.`,
+          methodologyExecutionPlan(methodologies),
           "Return a compact Markdown section only.",
-          "Include: stage decision, deeper framing, graph/knowledge connections, validation or maturity gap, next step, and risk or falsification check.",
+          "Include sections named: Methodology Execution, Generate, Critique, Improve, Score, Route, Evidence Gaps, Next Step.",
           "Do not restate the entire item.",
         ].join("\n"),
       },
@@ -67,6 +71,10 @@ async function llmEvolutionNote(
           `Maturity level: ${item.maturityLevel ?? 2}`,
           `Version: ${item.version ?? 1}`,
           `Current summary: ${item.summary}`,
+          `Required methodologies: ${methodologyNames(methodologies)}`,
+          "",
+          "Methodology execution checklist:",
+          methodologyExecutionPlan(methodologies),
           "",
           "User commentary to respect as feedback, critique, or preference. Do not rewrite the idea directly from these notes; use them to guide evolution:",
           userComments.length > 0 ? userComments.map((comment, index) => `${index + 1}. ${comment}`).join("\n") : "(No user commentary yet.)",

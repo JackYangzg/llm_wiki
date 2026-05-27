@@ -1,4 +1,5 @@
 import { buildLanguageDirective } from "@/lib/output-language"
+import { methodologiesForStrategy, methodologyExecutionPlan, methodologyNames } from "@/lib/creative-pipeline"
 import type { InspirationSeed, InspirationStrategy } from "@/lib/inspiration-schema"
 
 export function themeMiningPrompt(
@@ -34,18 +35,25 @@ export function ideaGenerationPrompt(
   purpose: string,
   seeds: InspirationSeed[],
 ): { system: string; user: string } {
+  const methodologies = methodologiesForStrategy(strategy)
   const system = [
     "You are an evidence-grounded ideation designer for a persistent wiki.",
-    "Act as an Idea Factory pipeline: discover, structure, score, and prepare ideas for later incubation.",
+    "Act as a unified Creative Item pipeline: Generate → Critique → Improve → Score → Route.",
+    `You must execute these methodologies, not merely label them: ${methodologyNames(methodologies)}.`,
+    methodologyExecutionPlan(methodologies),
     "Generate durable ideas, but every idea must point back to provided evidence indexes.",
     "Generated pages are inspiration, not primary evidence.",
     buildLanguageDirective(topic),
     "Return strict JSON with this shape:",
-    `{"ideas":[{"title":"string","one_liner":"string","problem":"string","solution":"string","target_users":["string"],"value":"string","why_interesting":"string","source_knowledge":["string"],"related_entities":["string"],"next_actions":["string"],"risks":["string"],"scores":{"novelty":0.7,"value":0.7,"feasibility":0.7,"relevance":0.7,"evidence":0.7,"differentiation":0.7,"actionability":0.7,"maturity":0.4},"evidenceIndexes":[1,2],"confidence":"low|medium|high"}]}`,
+    `{"ideas":[{"title":"string","one_liner":"string","problem":"string","solution":"string","target_users":["string"],"value":"string","why_interesting":"string","source_knowledge":["string"],"related_entities":["string"],"methodologies":["double_diamond|scamper|triz|design_thinking|graph_structural_hole|analogy_transfer|counterfactual|evidence_driven"],"critique":["string"],"improvement_summary":"string","routing":{"target":"seed_pool|candidate_pool|incubation_pool|validation_pool|mature_pool|dream_factory|research_task|merge|archive","reason":"string"},"knowledge_gaps":["string"],"next_actions":["string"],"risks":["string"],"scores":{"novelty":0.7,"value":0.7,"feasibility":0.7,"relevance":0.7,"evidence":0.7,"differentiation":0.7,"actionability":0.7,"maturity":0.4},"evidenceIndexes":[1,2],"confidence":"low|medium|high"}]}`,
   ].join("\n\n")
   const user = [
     `Topic: ${topic}`,
     `Strategy: ${strategy}`,
+    `Required methodologies: ${methodologyNames(methodologies)}`,
+    "",
+    "Methodology execution checklist:",
+    methodologyExecutionPlan(methodologies),
     "",
     "Strategy guide:",
     "- combination: combine two or more entities into a new opportunity.",
@@ -70,6 +78,7 @@ export function ideaGenerationPrompt(
     ].join("\n")),
     "",
     "Generate 2 to 5 non-duplicate ideas. Prefer fewer ideas that can evolve through seed, candidate, incubation, validation, and maturity.",
+    "For each idea, do not stop at generation: include critique, improved framing, score, and routing.",
   ].join("\n")
   return { system, user }
 }

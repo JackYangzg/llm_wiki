@@ -58,6 +58,16 @@ function typeLabel(t: (key: string, options?: { defaultValue?: string }) => stri
   return t(`inspiration.itemTypes.${item.type}`, { defaultValue: item.type })
 }
 
+function creativeTypeLabel(t: (key: string, options?: { defaultValue?: string }) => string, item: InspirationItem): string {
+  const creativeType = item.creativeType ?? (item.type === "dream" ? "dream_idea" : item.type === "theme" ? "topic_idea" : "idea")
+  return t(`inspiration.creativeTypes.${creativeType}`, { defaultValue: creativeType })
+}
+
+function routeLabel(t: (key: string, options?: { defaultValue?: string }) => string, item: InspirationItem): string {
+  if (!item.routingTarget) return ""
+  return t(`inspiration.routes.${item.routingTarget}`, { defaultValue: item.routingTarget })
+}
+
 function scorePercent(n: number): string {
   return `${Math.round(n * 100)}`
 }
@@ -595,6 +605,14 @@ function ItemCard({
             <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
               {item.strategy}
             </span>
+            <span className="rounded-md bg-secondary px-1.5 py-0.5 text-[11px] text-secondary-foreground">
+              {creativeTypeLabel(t, item)}
+            </span>
+            {item.routingTarget && (
+              <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                {routeLabel(t, item)}
+              </span>
+            )}
             {item.reviewState !== "new" && (
               <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
                 {t(`inspiration.reviewState.${item.reviewState}`, { defaultValue: item.reviewState })}
@@ -619,6 +637,15 @@ function ItemCard({
         </div>
       </div>
       <p className="mb-3 line-clamp-3 text-sm text-muted-foreground">{item.summary}</p>
+      {item.methodologies?.length ? (
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {item.methodologies.slice(0, 4).map((methodology) => (
+            <span key={methodology} className="rounded-full border bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
+              {t(`inspiration.methodologies.${methodology}`, { defaultValue: methodology })}
+            </span>
+          ))}
+        </div>
+      ) : null}
       <div className="mb-3 flex flex-wrap gap-1.5">
         {(item.evidence ?? []).slice(0, 3).map((evidence) => (
           <button

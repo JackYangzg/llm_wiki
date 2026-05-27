@@ -51,6 +51,7 @@ interface ChatState {
   clearMessages: () => void
   setMaxHistoryMessages: (n: number) => void
   removeLastAssistantMessage: () => void  // for regenerate: remove last assistant reply
+  removeMessageAndFollowing: (messageId: string) => void
 
   // Helpers
   getActiveMessages: () => DisplayMessage[]
@@ -215,6 +216,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const msgToRemove = activeMessages[activeMessages.length - 1 - lastAssistantIdx]
       return {
         messages: state.messages.filter((m) => m.id !== msgToRemove.id),
+      }
+    }),
+
+  removeMessageAndFollowing: (messageId) =>
+    set((state) => {
+      const target = state.messages.find((m) => m.id === messageId)
+      if (!target) return state
+      const activeId = target.conversationId
+      const activeMessages = state.messages.filter((m) => m.conversationId === activeId)
+      const targetIndex = activeMessages.findIndex((m) => m.id === messageId)
+      if (targetIndex < 0) return state
+      const removeIds = new Set(activeMessages.slice(targetIndex).map((m) => m.id))
+      return {
+        messages: state.messages.filter((m) => !removeIds.has(m.id)),
+        conversations: state.conversations.map((c) =>
+          c.id === activeId ? { ...c, updatedAt: Date.now() } : c
+        ),
       }
     }),
 

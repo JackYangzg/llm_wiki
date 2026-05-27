@@ -4,7 +4,7 @@ import { BookOpen, Plus, Trash2, MessageSquare } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ChatMessage, StreamingMessage, useSourceFiles } from "./chat-message"
 import { ChatInput } from "./chat-input"
-import { useChatStore, chatMessagesToLLM } from "@/stores/chat-store"
+import { useChatStore, chatMessagesToLLM, type DisplayMessage } from "@/stores/chat-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { streamChat, type ChatMessage as LLMMessage } from "@/lib/llm-client"
 import { executeIngestWrites } from "@/lib/ingest"
@@ -133,6 +133,7 @@ export function ChatPanel() {
   const finalizeStream = useChatStore((s) => s.finalizeStream)
   const createConversation = useChatStore((s) => s.createConversation)
   const removeLastAssistantMessage = useChatStore((s) => s.removeLastAssistantMessage)
+  const removeMessageAndFollowing = useChatStore((s) => s.removeMessageAndFollowing)
   const maxHistoryMessages = useChatStore((s) => s.maxHistoryMessages)
 
   // Derive active messages via selector to re-render on message changes
@@ -459,6 +460,21 @@ export function ChatPanel() {
     handleSend(lastUserMsg.content)
   }, [isStreaming, removeLastAssistantMessage, handleSend])
 
+  const retryFromUserMessage = useCallback(async (message: DisplayMessage, content: string) => {
+    if (isStreaming || message.role !== "user") return
+    removeMessageAndFollowing(message.id)
+    await new Promise((r) => setTimeout(r, 50))
+    handleSend(content)
+  }, [handleSend, isStreaming, removeMessageAndFollowing])
+
+  const handleRetryUserMessage = useCallback((message: DisplayMessage) => {
+    retryFromUserMessage(message, message.content)
+  }, [retryFromUserMessage])
+
+  const handleEditUserMessage = useCallback((message: DisplayMessage, content: string) => {
+    retryFromUserMessage(message, content)
+  }, [retryFromUserMessage])
+
   const handleWriteToWiki = useCallback(async () => {
     if (!project) return
     const pp = normalizePath(project.path)
@@ -508,6 +524,8 @@ export function ChatPanel() {
                       message={msg}
                       isLastAssistant={isLastAssistant && !isStreaming}
                       onRegenerate={isLastAssistant ? handleRegenerate : undefined}
+                      onRetryUserMessage={!isStreaming && msg.role === "user" ? handleRetryUserMessage : undefined}
+                      onEditUserMessage={!isStreaming && msg.role === "user" ? handleEditUserMessage : undefined}
                     />
                   )
                 })}

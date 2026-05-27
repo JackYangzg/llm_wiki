@@ -25,6 +25,7 @@ import {
   importCandidatePaper,
   importResearchPapers,
   listResearchPapers,
+  rewriteSearchQuery,
   type PaperCandidate,
 } from "@/lib/paper-research"
 import {
@@ -49,6 +50,9 @@ export function PaperResearchView() {
   const [papers, setPapers] = useState<FileNode[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [topic, setTopic] = useState("")
+  const [confirmedTopic, setConfirmedTopic] = useState("")
+  const [rewrittenQuery, setRewrittenQuery] = useState("")
+  const [queryNeedsConfirmation, setQueryNeedsConfirmation] = useState(false)
   const [candidates, setCandidates] = useState<PaperCandidate[]>([])
   const [notes, setNotes] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -126,7 +130,13 @@ export function PaperResearchView() {
 
   const triggerScan = useCallback(async () => {
     if (!project) return
+    const activeTopics = paperMonitorConfig.topics.filter((item) => item.enabled && item.query.trim())
+    if (activeTopics.length === 0) {
+      setError(t("paperResearch.monitor.noTopicsForScan"))
+      return
+    }
     setScanningNow(true)
+    setError(null)
     try {
       await triggerPaperMonitorScan(project, paperMonitorConfig, llmConfig)
       await loadScans()
@@ -135,7 +145,7 @@ export function PaperResearchView() {
     } finally {
       setScanningNow(false)
     }
-  }, [llmConfig, paperMonitorConfig, project, loadScans])
+  }, [llmConfig, paperMonitorConfig, project, loadScans, t])
 
   useEffect(() => {
     refresh()
@@ -189,13 +199,16 @@ export function PaperResearchView() {
     }
   }, [setFileContent, setSelectedFile])
 
-  const collectPapers = useCallback(async () => {
+  const preparePaperSearch = useCallback(async () => {
     if (!topic.trim()) return
-    setBusy("collect")
+    setBusy("rewrite")
     try {
-      const result = await collectPaperCandidates(topic.trim(), llmConfig, paperResearchConfig.literatureQueryCount * 4)
-      setCandidates(result.candidates)
-      setNotes(result.notes)
+      const rewritten = await rewriteSearchQuery(topic.trim(), llmConfig)
+      setConfirmedTopic(topic.trim())
+      setRewrittenQuery(rewritten || topic.trim())
+      setQueryNeedsConfirmation(true)
+      setCandidates([])
+      setNotes([])
       setError(null)
       setPage(0)
     } catch (err) {
@@ -203,7 +216,31 @@ export function PaperResearchView() {
     } finally {
       setBusy(null)
     }
-  }, [llmConfig, paperResearchConfig.literatureQueryCount, topic])
+  }, [llmConfig, topic])
+
+  const collectPapers = useCallback(async () => {
+    const original = confirmedTopic || topic.trim()
+    const query = rewrittenQuery.trim() || original
+    if (!original || !query) return
+    setBusy("collect")
+    try {
+      const result = await collectPaperCandidates(
+        original,
+        llmConfig,
+        paperResearchConfig.literatureQueryCount * 4,
+        { rewrittenQuery: query },
+      )
+      setCandidates(result.candidates)
+      setNotes(result.notes)
+      setError(null)
+      setPage(0)
+      setQueryNeedsConfirmation(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(null)
+    }
+  }, [confirmedTopic, llmConfig, paperResearchConfig.literatureQueryCount, rewrittenQuery, topic])
 
   const importCandidate = useCallback(async (candidate: PaperCandidate) => {
     if (!project) return
@@ -270,16 +307,38 @@ export function PaperResearchView() {
               onChange={(e) => setTopic(e.target.value)}
               onKeyDown={(e) => {
                 if (isImeComposing(e)) return
-                if (e.key === "Enter") collectPapers()
+                if (e.key === "Enter") preparePaperSearch()
               }}
               placeholder={t("paperResearch.topicPlaceholder")}
               className="min-w-0 flex-1 rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring"
             />
-            <Button onClick={collectPapers} disabled={!topic.trim() || !!busy}>
-              {busy === "collect" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              {t("paperResearch.collect")}
+            <Button onClick={preparePaperSearch} disabled={!topic.trim() || !!busy}>
+              {busy === "rewrite" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              {t("paperResearch.prepareQuery")}
             </Button>
           </div>
+          {queryNeedsConfirmation && (
+            <div className="mt-3 rounded-md border bg-background p-3">
+              <div className="mb-2 text-xs font-medium text-muted-foreground">
+                {t("paperResearch.confirmQueryTitle")}
+              </div>
+              <textarea
+                value={rewrittenQuery}
+                dir="auto"
+                onChange={(e) => setRewrittenQuery(e.target.value)}
+                className="min-h-20 w-full resize-y rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring"
+              />
+              <div className="mt-2 flex items-center justify-end gap-2">
+                <Button variant="outline" size="sm" onClick={() => setQueryNeedsConfirmation(false)} disabled={!!busy}>
+                  {t("paperResearch.cancelQuery")}
+                </Button>
+                <Button size="sm" onClick={collectPapers} disabled={!rewrittenQuery.trim() || !!busy}>
+                  {busy === "collect" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                  {t("paperResearch.confirmAndCollect")}
+                </Button>
+              </div>
+            </div>
+          )}
           <p className="mt-2 text-xs text-muted-foreground">
             {t("paperResearch.collectHint")}
           </p>

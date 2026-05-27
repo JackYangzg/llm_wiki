@@ -6,6 +6,27 @@ export type InspirationTaskStatus = "queued" | "collecting" | "generating" | "ev
 
 export type InspirationItemType = "theme" | "idea" | "dream"
 export type InspirationOrigin = "factory" | "theme_lab" | "dream" | "adopted"
+export type CreativeItemType = "idea" | "topic_idea" | "dream_idea"
+export type CreativeFactory = "idea_factory" | "theme_factory" | "dream_factory"
+export type CreativeMethodology =
+  | "double_diamond"
+  | "scamper"
+  | "triz"
+  | "design_thinking"
+  | "graph_structural_hole"
+  | "analogy_transfer"
+  | "counterfactual"
+  | "evidence_driven"
+export type CreativeRouteTarget =
+  | "seed_pool"
+  | "candidate_pool"
+  | "incubation_pool"
+  | "validation_pool"
+  | "mature_pool"
+  | "dream_factory"
+  | "research_task"
+  | "merge"
+  | "archive"
 export type IdeaStage = "seed" | "candidate" | "incubating" | "validated" | "mature" | "adopted" | "archived"
 export type IdeaTaskType = "structure" | "expand" | "compress" | "score" | "dedup" | "merge" | "validate" | "mature"
 export type DreamMode = "free_association" | "future" | "counterfactual" | "metaphor" | "conflict" | "roleplay" | "gap_fill" | "solution_evolution"
@@ -105,6 +126,15 @@ export interface InspirationItem {
   summary: string
   body: string
   strategy: InspirationStrategy
+  creativeType?: CreativeItemType
+  sourceFactory?: CreativeFactory
+  methodologies?: CreativeMethodology[]
+  critiques?: string[]
+  improvementSummary?: string
+  routingTarget?: CreativeRouteTarget
+  routingReason?: string
+  knowledgeGaps?: string[]
+  nextTasks?: string[]
   themeKey?: string
   ideaStage?: IdeaStage
   maturityLevel?: number

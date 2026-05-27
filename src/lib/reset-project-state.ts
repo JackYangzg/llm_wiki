@@ -13,6 +13,7 @@ import { useReviewStore } from "@/stores/review-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { useResearchStore } from "@/stores/research-store"
 import { useInspirationStore } from "@/stores/inspiration-store"
+import { useWikiStore } from "@/stores/wiki-store"
 
 export async function resetProjectState(): Promise<void> {
   // Zustand stores — clear all per-project data (synchronous)
@@ -54,15 +55,24 @@ export async function resetProjectState(): Promise<void> {
     error: null,
   })
 
+  useWikiStore.setState({
+    wechatMessages: [],
+    wechatUnreadCount: 0,
+    wechatPanelOpen: false,
+    wechatDisconnected: false,
+  })
+
   // Module-level caches — load in parallel and clear each, surfacing any
   // failure instead of swallowing it.
-  const [queueMod, dedupQueueMod, graphMod, fileSyncMod, scheduledImportMod, scheduledInspirationMod] = await Promise.allSettled([
+  const [queueMod, dedupQueueMod, graphMod, fileSyncMod, scheduledImportMod, scheduledInspirationMod, paperMonitorMod, wechatImportMod] = await Promise.allSettled([
     import("@/lib/ingest-queue"),
     import("@/lib/dedup-queue"),
     import("@/lib/graph-relevance"),
     import("@/lib/project-file-sync"),
     import("@/lib/scheduled-import"),
     import("@/lib/scheduled-inspiration"),
+    import("@/lib/paper-monitor"),
+    import("@/lib/wechat-import"),
   ])
 
   if (scheduledImportMod.status === "fulfilled") {
@@ -83,6 +93,26 @@ export async function resetProjectState(): Promise<void> {
     }
   } else {
     console.warn("[Reset Project State] Failed to load scheduled-inspiration:", scheduledInspirationMod.reason)
+  }
+
+  if (paperMonitorMod.status === "fulfilled") {
+    try {
+      paperMonitorMod.value.stopPaperMonitor()
+    } catch (err) {
+      console.warn("[Reset Project State] stopPaperMonitor failed:", err)
+    }
+  } else {
+    console.warn("[Reset Project State] Failed to load paper-monitor:", paperMonitorMod.reason)
+  }
+
+  if (wechatImportMod.status === "fulfilled") {
+    try {
+      wechatImportMod.value.stopImport()
+    } catch (err) {
+      console.warn("[Reset Project State] stopWechatImport failed:", err)
+    }
+  } else {
+    console.warn("[Reset Project State] Failed to load wechat-import:", wechatImportMod.reason)
   }
 
   if (queueMod.status === "fulfilled") {

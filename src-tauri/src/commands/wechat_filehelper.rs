@@ -55,6 +55,7 @@ pub struct LoginStatus {
     pub message: String,
     pub nickname: Option<String>,
     pub avatar_url: Option<String>,
+    pub wxid: Option<String>,
     pub session_token: Option<String>,
 }
 
@@ -899,6 +900,7 @@ pub async fn wechat_check_login(
                 .as_ref()
                 .and_then(|u| u.user_name.clone())
                 .unwrap_or_default();
+            let account_id = wxuin.clone();
 
             {
                 let mut inner = state.inner.lock().map_err(|e| e.to_string())?;
@@ -927,6 +929,7 @@ pub async fn wechat_check_login(
                 message: "登录成功".to_string(),
                 nickname: Some(nickname),
                 avatar_url: Some(avatar_url),
+                wxid: Some(account_id),
                 session_token: Some("filehelper_session".to_string()),
             })
         }
@@ -942,6 +945,7 @@ pub async fn wechat_check_login(
                 message: "已扫描，请在手机上确认".to_string(),
                 nickname: None,
                 avatar_url: None,
+                wxid: None,
                 session_token: None,
             })
         }
@@ -956,6 +960,7 @@ pub async fn wechat_check_login(
                 message: "等待扫描".to_string(),
                 nickname: None,
                 avatar_url: None,
+                wxid: None,
                 session_token: None,
             })
         }
@@ -970,6 +975,7 @@ pub async fn wechat_check_login(
                 message: format!("二维码已过期 (code={code})"),
                 nickname: None,
                 avatar_url: None,
+                wxid: None,
                 session_token: None,
             })
         }
@@ -1472,6 +1478,7 @@ pub async fn wechat_try_restore_session(
                 message: "没有保存的会话".to_string(),
                 nickname: None,
                 avatar_url: None,
+                wxid: None,
                 session_token: None,
             })
         }
@@ -1527,6 +1534,7 @@ pub async fn wechat_try_restore_session(
             message: "会话已恢复".to_string(),
             nickname: Some(data.nickname),
             avatar_url: Some(data.avatar_url),
+            wxid: Some(data.uin),
             session_token: Some("filehelper_session".to_string()),
         })
     } else {
@@ -1537,6 +1545,7 @@ pub async fn wechat_try_restore_session(
             message: "会话已过期".to_string(),
             nickname: None,
             avatar_url: None,
+            wxid: None,
             session_token: None,
         })
     }

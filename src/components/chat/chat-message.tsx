@@ -10,6 +10,7 @@ import {
   TrendingUp, Target, Image as ImageIcon,
 } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
+import { useTranslation } from "react-i18next"
 import { readFile, writeFile, listDirectory } from "@/commands/fs"
 import { lastQueryPages } from "@/components/chat/chat-panel"
 import type { DisplayMessage } from "@/stores/chat-store"
@@ -63,13 +64,38 @@ interface ChatMessageProps {
   message: DisplayMessage
   isLastAssistant?: boolean
   onRegenerate?: () => void
+  onRetryUserMessage?: (message: DisplayMessage) => void
+  onEditUserMessage?: (message: DisplayMessage, content: string) => void
 }
 
-export function ChatMessage({ message, isLastAssistant, onRegenerate }: ChatMessageProps) {
+export function ChatMessage({
+  message,
+  isLastAssistant,
+  onRegenerate,
+  onRetryUserMessage,
+  onEditUserMessage,
+}: ChatMessageProps) {
+  const { t } = useTranslation()
   const isUser = message.role === "user"
   const isSystem = message.role === "system"
   const isAssistant = message.role === "assistant"
   const [hovered, setHovered] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(message.content)
+
+  useEffect(() => {
+    if (!editing) setDraft(message.content)
+  }, [editing, message.content])
+
+  const submitEdit = useCallback(() => {
+    const next = draft.trim()
+    if (!next || next === message.content) {
+      setEditing(false)
+      return
+    }
+    onEditUserMessage?.(message, next)
+    setEditing(false)
+  }, [draft, message, onEditUserMessage])
 
   return (
     <div
@@ -97,11 +123,65 @@ export function ChatMessage({ message, isLastAssistant, onRegenerate }: ChatMess
           }`}
         >
           {isUser ? (
-            <p dir="auto" className="whitespace-pre-wrap break-words">{message.content}</p>
+            editing ? (
+              <div className="space-y-2">
+                <textarea
+                  value={draft}
+                  dir="auto"
+                  onChange={(e) => setDraft(e.target.value)}
+                  className="min-h-24 w-full resize-y rounded-md border border-primary-foreground/30 bg-background/95 px-2 py-1 text-sm text-foreground outline-none focus:ring-1 focus:ring-primary-foreground/60"
+                />
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraft(message.content)
+                      setEditing(false)
+                    }}
+                    className="rounded px-2 py-0.5 text-[11px] text-primary-foreground/80 hover:bg-primary-foreground/10"
+                  >
+                    {t("chat.cancelEdit")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={submitEdit}
+                    className="rounded bg-primary-foreground px-2 py-0.5 text-[11px] text-primary hover:bg-primary-foreground/90"
+                  >
+                    {t("chat.saveAndRetry")}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p dir="auto" className="whitespace-pre-wrap break-words">{message.content}</p>
+            )
           ) : (
             <MarkdownContent content={message.content} />
           )}
         </div>
+        {isUser && hovered && !editing && (
+          <div className="flex justify-end gap-1">
+            {onEditUserMessage && (
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                title={t("chat.editMessage")}
+              >
+                {t("chat.edit")}
+              </button>
+            )}
+            {onRetryUserMessage && (
+              <button
+                type="button"
+                onClick={() => onRetryUserMessage(message)}
+                className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                title={t("chat.retryFromHere")}
+              >
+                <RefreshCw className="h-3 w-3" /> {t("chat.retry")}
+              </button>
+            )}
+          </div>
+        )}
         {isAssistant && <CitedReferencesPanel content={message.content} savedReferences={message.references} />}
         {isAssistant && hovered && (
           <div className="flex items-center gap-1">

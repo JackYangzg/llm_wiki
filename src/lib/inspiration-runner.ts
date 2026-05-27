@@ -8,6 +8,7 @@ import { rankWithMmr } from "@/lib/idea-ranking"
 import { saveInspirationItems } from "@/lib/inspiration-persist"
 import { evolveIdeas } from "@/lib/idea-evolution"
 import { loadInspirationSnapshot } from "@/lib/inspiration-persist"
+import { enrichCreativeMetadata, methodologiesForStrategy, routeTargetForItem } from "@/lib/creative-pipeline"
 import {
   blankScores,
   type InspirationEvidence,
@@ -26,6 +27,8 @@ import {
   type DreamMaterialRole,
   type DreamMode,
   type DreamOutput,
+  type CreativeMethodology,
+  type CreativeRouteTarget,
 } from "@/lib/inspiration-schema"
 import { dreamReplayPrompt, ideaGenerationPrompt, themeMiningPrompt } from "@/lib/inspiration-prompts"
 import { normalizePath } from "@/lib/path-utils"
@@ -55,6 +58,18 @@ function parseScore(value: unknown, fallback: number): number {
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String).map((s) => s.trim()).filter(Boolean) : []
+}
+
+function methodologyArray(value: unknown, fallback: CreativeMethodology[]): CreativeMethodology[] {
+  const allowed: CreativeMethodology[] = ["double_diamond", "scamper", "triz", "design_thinking", "graph_structural_hole", "analogy_transfer", "counterfactual", "evidence_driven"]
+  const parsed = stringArray(value).filter((method): method is CreativeMethodology => allowed.includes(method as CreativeMethodology))
+  return parsed.length > 0 ? parsed : fallback
+}
+
+function routeTarget(value: unknown, fallback: CreativeRouteTarget): CreativeRouteTarget {
+  const allowed: CreativeRouteTarget[] = ["seed_pool", "candidate_pool", "incubation_pool", "validation_pool", "mature_pool", "dream_factory", "research_task", "merge", "archive"]
+  const parsed = String(value ?? "")
+  return allowed.includes(parsed as CreativeRouteTarget) ? parsed as CreativeRouteTarget : fallback
 }
 
 function asDreamMode(value: unknown): DreamMode {
@@ -148,7 +163,7 @@ function enrichFactoryLifecycle(
       `strategy:${item.strategy}`,
       ...evidence.slice(0, 5).map((e) => `${e.role}:${e.title}`),
     ]
-  return {
+  return enrichCreativeMetadata({
     ...item,
     ideaStage,
     maturityLevel: item.maturityLevel ?? stageMaturity(ideaStage),
@@ -160,7 +175,7 @@ function enrichFactoryLifecycle(
     lastTaskType: item.lastTaskType ?? (item.type === "idea" ? "score" : "structure"),
     reactivationReasons: item.reactivationReasons ?? [],
     mergedFrom: item.mergedFrom ?? [],
-  }
+  }, runType)
 }
 
 async function completeJson(llmConfig: LlmConfig, system: string, user: string): Promise<unknown | null> {
@@ -340,8 +355,9 @@ async function generateIdeaItems(
     const targetUsers = stringArray(idea.target_users)
     const relatedEntities = stringArray(idea.related_entities)
     const sourceKnowledge = stringArray(idea.source_knowledge)
+    const routing = typeof idea.routing === "object" && idea.routing ? idea.routing as Record<string, unknown> : {}
     const rawScores = typeof idea.scores === "object" && idea.scores ? idea.scores as Record<string, unknown> : {}
-    return {
+    const item: InspirationItem = {
       id: id("idea"),
       runId,
       type: "idea",
@@ -382,6 +398,13 @@ async function generateIdeaItems(
         diversity: parseScore(rawScores.differentiation, 0.66),
       }),
       relatedEntities,
+      methodologies: methodologyArray(idea.methodologies, methodologiesForStrategy(strategy)),
+      critiques: stringArray(idea.critique),
+      improvementSummary: String(idea.improvement_summary ?? ""),
+      routingTarget: routeTarget(routing.target, "candidate_pool"),
+      routingReason: String(routing.reason ?? ""),
+      knowledgeGaps: stringArray(idea.knowledge_gaps),
+      nextTasks: actions,
       reasoningPath: [
         ...sourceKnowledge.map((source) => `source:${source}`),
         ...evidence.slice(0, 5).map((e) => `${e.role}:${e.title}`),
@@ -393,6 +416,10 @@ async function generateIdeaItems(
       updatedAt: now,
       evolutionCount: 0,
     }
+    return enrichCreativeMetadata({
+      ...item,
+      routingTarget: item.routingTarget ?? routeTargetForItem(item),
+    })
   })
 }
 
@@ -587,86 +614,19 @@ function useProjectPathFromSeeds(seeds: InspirationSeed[]): string {
   return index >= 0 ? normalizePath(first).slice(0, index) : ""
 }
 
-function relevanceTokens(text: string): Set<string> {
-  const normalized = text.toLowerCase()
-  const tokens = new Set<string>()
-  for (const token of normalized.split(/[^\p{L}\p{N}]+/u).map((part) => part.trim()).filter((part) => part.length >= 2)) {
-    tokens.add(token)
-  }
-  const cjk = normalized.match(/[\u4e00-\u9fff]+/gu) ?? []
-  for (const segment of cjk) {
-    for (let i = 0; i < segment.length - 1; i++) {
-      tokens.add(segment.slice(i, i + 2))
-    }
-  }
-  return tokens
-}
-
-function tokenOverlapScore(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 || b.size === 0) return 0
-  let overlap = 0
-  for (const token of a) {
-    if (b.has(token)) overlap++
-  }
-  return overlap / Math.min(a.size, b.size)
-}
-
-function itemRelevanceText(item: InspirationItem): string {
-  return [
-    item.title,
-    item.summary,
-    item.themeKey,
-    item.body,
-    ...(item.relatedEntities ?? []),
-    ...(item.reasoningPath ?? []),
-    ...(item.evidence ?? []).flatMap((evidence) => [evidence.title, evidence.snippet, evidence.pagePath]),
-  ].filter(Boolean).join("\n")
-}
-
-function seedRelevanceText(seed: InspirationSeed): string {
-  return [seed.title, seed.type, seed.snippet, seed.path].filter(Boolean).join("\n")
-}
-
-function recentFactoryKnowledgeSeeds(snapshot: { runs: InspirationRun[] } | null, seeds: InspirationSeed[]): InspirationSeed[] {
-  const latestFactoryRunAt = snapshot?.runs
-    .filter((run) => run.runType === "daily" || run.runType === "factory")
-    .reduce((latest, run) => Math.max(latest, run.finishedAt ?? run.startedAt ?? 0), 0) ?? 0
-  const recent = seeds.filter((seed) => (seed.modifiedAt ?? 0) > latestFactoryRunAt)
-  return recent.length > 0
-    ? recent
-    : [...seeds].sort((a, b) => (b.modifiedAt ?? 0) - (a.modifiedAt ?? 0)).slice(0, 24)
-}
-
-function relevantFactoryIdeaIds(snapshot: { items: InspirationItem[] } | null, seeds: InspirationSeed[]): string[] {
-  if (!snapshot || seeds.length === 0) return []
-  const seedTexts = seeds.map((seed) => ({
-    seed,
-    tokens: relevanceTokens(seedRelevanceText(seed)),
-    path: normalizePath(seed.path),
-  }))
-  const ids: string[] = []
-  for (const item of snapshot.items) {
-    if (
-      item.origin !== "factory" ||
-      item.type !== "idea" ||
-      item.reviewState === "formal" ||
-      item.reviewState === "rejected" ||
-      item.ideaStage === "adopted" ||
-      item.ideaStage === "archived" ||
-      !item.markdownPath
-    ) {
-      continue
-    }
-    const evidencePaths = new Set((item.evidence ?? []).map((evidence) => normalizePath(evidence.pagePath)))
-    const itemTokens = relevanceTokens(itemRelevanceText(item))
-    const relevant = seedTexts.some(({ tokens, path }) =>
-      evidencePaths.has(path) ||
-      tokenOverlapScore(itemTokens, tokens) >= 0.18 ||
-      [...tokens].some((token) => token.length >= 4 && itemTokens.has(token)),
+function evolvableFactoryIdeaIds(snapshot: { items: InspirationItem[] } | null): string[] {
+  if (!snapshot) return []
+  return snapshot.items
+    .filter((item) =>
+      item.origin === "factory" &&
+      item.type === "idea" &&
+      item.reviewState !== "formal" &&
+      item.reviewState !== "rejected" &&
+      item.ideaStage !== "adopted" &&
+      item.ideaStage !== "archived" &&
+      Boolean(item.markdownPath),
     )
-    if (relevant) ids.push(item.id)
-  }
-  return ids
+    .map((item) => item.id)
 }
 
 export async function runInspiration(
@@ -709,10 +669,9 @@ export async function runInspiration(
   let candidates: InspirationItem[] = []
   if (runType === "daily") {
     const snapshotBeforeEvolution = await loadInspirationSnapshot(pp).catch(() => null)
-    const changedKnowledgeSeeds = recentFactoryKnowledgeSeeds(snapshotBeforeEvolution, seeds)
-    const relevantIdeaIds = relevantFactoryIdeaIds(snapshotBeforeEvolution, changedKnowledgeSeeds)
-    if (relevantIdeaIds.length > 0) {
-      await evolveIdeas(pp, llmConfig, relevantIdeaIds.length, relevantIdeaIds).catch(() => {})
+    const allFactoryIdeaIds = evolvableFactoryIdeaIds(snapshotBeforeEvolution)
+    if (allFactoryIdeaIds.length > 0) {
+      await evolveIdeas(pp, llmConfig, allFactoryIdeaIds.length, allFactoryIdeaIds).catch(() => {})
     }
     const snapshot = await loadInspirationSnapshot(pp).catch(() => null)
     const existingIdeaContext = snapshot?.items
@@ -730,12 +689,12 @@ export async function runInspiration(
       "## Existing idea factory items",
       existingIdeaContext || "No existing factory ideas yet.",
       "",
-      "Factory rule: prefer improving or branching from existing evolvable ideas when new knowledge changes their evidence, scope, or action path. Generate fewer but more durable ideas.",
+      "Factory rule: all existing unadopted factory ideas have already been routed through the methodology iteration pipeline in this build. Now generate at most two genuinely new durable ideas. Prefer improving or branching from existing ideas instead of creating a large list.",
     ].join("\n")
     const topicSeeds = await generateThemeItems(runId, llmConfig, factoryPurpose, seeds)
     const themeIdeas = await Promise.all(
-      topicSeeds.slice(0, 4).flatMap((theme) =>
-        (["bridge", "contradiction", "timeline"] as InspirationStrategy[]).map((strategy) =>
+      topicSeeds.slice(0, 2).flatMap((theme) =>
+        (["bridge", "contradiction"] as InspirationStrategy[]).map((strategy) =>
           generateIdeaItems(runId, llmConfig, theme.title, strategy, factoryPurpose, seeds.slice(0, 48)),
         ),
       ),
@@ -745,12 +704,32 @@ export async function runInspiration(
     candidates = await generateDreamItem(runId, llmConfig, topic || "Dream replay", seeds)
   } else {
     const strategies: InspirationStrategy[] = ["bridge", "contradiction", "analogy", "timeline", "gap"]
-    const batches = await Promise.all(strategies.map((strategy) => generateIdeaItems(runId, llmConfig, topic || "Untitled topic", strategy, purpose, seeds)))
-    candidates = batches.flat().map((item) => ({ ...item, origin: "theme_lab" as const }))
+    const themeTopic = topic?.trim() || "Untitled topic"
+    const themePurpose = [
+      purpose,
+      "",
+      `Theme Factory constraint: only generate topic ideas for the user's selected theme "${themeTopic}".`,
+      "Do not generate generic Idea Factory items. Every output must state how it fits this theme, which sub-direction it covers, and why it belongs in the Theme Lab.",
+    ].join("\n")
+    const batches = await Promise.all(strategies.map((strategy) => generateIdeaItems(runId, llmConfig, themeTopic, strategy, themePurpose, seeds)))
+    candidates = batches.flat().map((item) => ({
+      ...item,
+      type: "theme" as const,
+      origin: "theme_lab" as const,
+      creativeType: "topic_idea" as const,
+      sourceFactory: "theme_factory" as const,
+      themeKey: themeTopic,
+      body: [
+        `## Source Theme\n${themeTopic}`,
+        "",
+        item.body,
+      ].join("\n"),
+    }))
   }
 
   const enrichedCandidates = candidates.map((item) => enrichFactoryLifecycle(item, triggerType, runType))
-  const ranked = rankWithMmr(dedupInspirationItems(enrichedCandidates), runType === "daily" ? 14 : 10)
+  const maxSavedItems = runType === "daily" ? 2 : runType === "theme" ? 1 : 10
+  const ranked = rankWithMmr(dedupInspirationItems(enrichedCandidates), maxSavedItems)
 
   run = { ...run, status: "saving" }
   callbacks.onRunUpdate?.(run)

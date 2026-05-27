@@ -18,6 +18,7 @@ export interface LoginStatus {
   message: string
   nickname?: string
   avatar_url?: string
+  wxid?: string
   session_token?: string
 }
 
@@ -25,6 +26,7 @@ export interface WechatSession {
   token: string
   nickname: string
   avatarUrl: string
+  accountId: string
   fileTransferUserId: string
 }
 

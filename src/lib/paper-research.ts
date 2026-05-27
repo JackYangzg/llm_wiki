@@ -122,17 +122,21 @@ export async function collectPaperCandidates(
   query: string,
   llmConfig: LlmConfig,
   limit = 12,
+  options: { rewrittenQuery?: string } = {},
 ): Promise<{ candidates: PaperCandidate[]; notes: string[]; rewrittenQuery: string }> {
   const notes: string[] = []
 
-  let searchQuery = query.trim()
-  try {
-    searchQuery = await rewriteSearchQuery(query, llmConfig)
-    if (searchQuery !== query) {
-      notes.push(`Query rewritten: "${searchQuery}"`)
+  const originalQuery = query.trim()
+  let searchQuery = options.rewrittenQuery?.trim() || originalQuery
+  if (!options.rewrittenQuery) {
+    try {
+      searchQuery = await rewriteSearchQuery(originalQuery, llmConfig)
+    } catch {
+      notes.push("Query rewriting failed, using original query")
     }
-  } catch {
-    notes.push("Query rewriting failed, using original query")
+  }
+  if (searchQuery !== originalQuery) {
+    notes.push(`Query confirmed: "${searchQuery}"`)
   }
 
   const window = paperSearchWindow()
@@ -154,7 +158,8 @@ export async function collectPaperCandidates(
 
   const merged = mergeCandidates([...arxiv, ...openAlex, ...crossref])
     .filter((candidate) => isWithinSearchWindow(candidate, window))
-    .sort(compareByDateDesc)
+    .map((candidate) => scoreCandidateForQuery(candidate, searchQuery, window))
+    .sort(compareBySearchQuality)
     .slice(0, 200)
   if (merged.length === 0 && notes.length === 0) {
     notes.push("No papers found from arXiv, OpenAlex, or Crossref. Try a broader English query or a specific method/paper title.")
@@ -476,6 +481,114 @@ function compareByDateDesc(a: PaperCandidate, b: PaperCandidate): number {
   const dateDiff = dateMs(b) - dateMs(a)
   if (dateDiff !== 0) return dateDiff
   return (b.citationCount ?? 0) - (a.citationCount ?? 0)
+}
+
+function compareBySearchQuality(a: PaperCandidate, b: PaperCandidate): number {
+  const scoreDiff = b.score - a.score
+  if (Math.abs(scoreDiff) > 0.0001) return scoreDiff
+  return compareByDateDesc(a, b)
+}
+
+function scoreCandidateForQuery(
+  candidate: PaperCandidate,
+  query: string,
+  window: PaperSearchWindow,
+): PaperCandidate {
+  const relevance = keywordRelevance(candidate, query)
+  const authority = authorityScore(candidate)
+  const freshness = freshnessScore(candidate, window)
+  const sourceCoverage = sourceCoverageScore(candidate)
+  const finalScore =
+    0.5 * relevance +
+    0.24 * authority +
+    0.18 * freshness +
+    0.08 * sourceCoverage
+
+  return {
+    ...candidate,
+    score: finalScore,
+    signals: [
+      `相关性 ${Math.round(relevance * 100)}%`,
+      `权威性 ${Math.round(authority * 100)}%`,
+      `时效性 ${Math.round(freshness * 100)}%`,
+      ...candidate.signals,
+    ],
+  }
+}
+
+function keywordRelevance(candidate: PaperCandidate, query: string): number {
+  const terms = tokenizeQuery(query)
+  if (terms.length === 0) return 0
+  const title = normalizeSearchText(candidate.title)
+  const abstract = normalizeSearchText(candidate.abstract)
+  const venue = normalizeSearchText(candidate.venue || "")
+  let score = 0
+  let max = 0
+
+  for (const term of terms) {
+    const weight = term.length > 6 ? 1.2 : 1
+    max += weight
+    if (title.includes(term)) {
+      score += weight
+    } else if (abstract.includes(term)) {
+      score += weight * 0.62
+    } else if (venue.includes(term)) {
+      score += weight * 0.35
+    }
+  }
+
+  const titlePhraseBoost = title.includes(normalizeSearchText(query)) ? 0.18 : 0
+  return clamp01(score / max + titlePhraseBoost)
+}
+
+function authorityScore(candidate: PaperCandidate): number {
+  const citations = candidate.citationCount ?? 0
+  const citationScore = citations > 0 ? Math.min(0.55, Math.log10(citations + 1) / 4) : 0
+  const doiScore = candidate.doi ? 0.12 : 0
+  const arxivScore = candidate.arxivId ? 0.08 : 0
+  const openAlexScore = candidate.openAlexId ? 0.08 : 0
+  const pdfScore = candidate.pdfUrl ? 0.07 : 0
+  const venueScore = candidate.venue ? 0.1 : 0
+  return clamp01(citationScore + doiScore + arxivScore + openAlexScore + pdfScore + venueScore)
+}
+
+function freshnessScore(candidate: PaperCandidate, window: PaperSearchWindow): number {
+  const ms = dateMs(candidate)
+  if (!ms) return 0
+  const span = window.to.getTime() - window.from.getTime()
+  if (span <= 0) return 0
+  return clamp01((ms - window.from.getTime()) / span)
+}
+
+function sourceCoverageScore(candidate: PaperCandidate): number {
+  const normalized = new Set(candidate.signals.map((signal) => signal.toLowerCase()))
+  let count = 1
+  if (candidate.arxivId || [...normalized].some((s) => s.includes("arxiv"))) count++
+  if (candidate.openAlexId || [...normalized].some((s) => s.includes("openalex"))) count++
+  if (candidate.doi || [...normalized].some((s) => s.includes("crossref"))) count++
+  return clamp01(count / 4)
+}
+
+function tokenizeQuery(query: string): string[] {
+  const stop = new Set([
+    "the", "and", "for", "with", "from", "into", "using", "based", "about",
+    "paper", "papers", "research", "study", "studies", "method", "methods",
+    "system", "systems", "model", "models", "approach", "approaches",
+  ])
+  return [...new Set(
+    normalizeSearchText(query)
+      .split(/[^a-z0-9]+/i)
+      .map((term) => term.trim())
+      .filter((term) => term.length >= 3 && !stop.has(term)),
+  )].slice(0, 16)
+}
+
+function normalizeSearchText(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value))
 }
 
 function dateMs(candidate: PaperCandidate): number {

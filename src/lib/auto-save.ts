@@ -10,10 +10,10 @@ export function setupAutoSave(): void {
   // Auto-save review items (debounced 1s)
   useReviewStore.subscribe((state) => {
     if (reviewTimer) clearTimeout(reviewTimer)
+    const projectPath = useWikiStore.getState().project?.path
     reviewTimer = setTimeout(() => {
-      const project = useWikiStore.getState().project
-      if (project) {
-        saveReviewItems(project.path, state.items).catch(() => {})
+      if (projectPath) {
+        saveReviewItems(projectPath, state.items).catch(() => {})
       }
     }, 1000)
   })
@@ -22,10 +22,10 @@ export function setupAutoSave(): void {
   useChatStore.subscribe((state) => {
     if (state.isStreaming) return
     if (chatTimer) clearTimeout(chatTimer)
+    const projectPath = useWikiStore.getState().project?.path
     chatTimer = setTimeout(() => {
-      const project = useWikiStore.getState().project
-      if (project) {
-        saveChatHistory(project.path, state.conversations, state.messages).catch(() => {})
+      if (projectPath) {
+        saveChatHistory(projectPath, state.conversations, state.messages).catch(() => {})
       }
     }, 2000)
   })

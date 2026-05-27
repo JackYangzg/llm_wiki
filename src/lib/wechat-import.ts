@@ -59,6 +59,7 @@ let pollInFlight = false
 let pollFailures = 0
 let currentProjectId = ""
 let session: WechatSession | null = null
+let importStartedAtSec = 0
 
 // ── Public API ────────────────────────────────────────────────────────────
 
@@ -71,16 +72,18 @@ export async function startImport(config: WechatImportConfig): Promise<void> {
 
   const store = useWikiStore.getState()
   const project = store.project
-  if (!project) return
+  const activeSession = session
+  if (!project || !activeSession) return
 
   currentProjectId = project.id
   polling = true
+  importStartedAtSec = Math.floor(Date.now() / 1000)
 
   const sourcesDir = `${normalizePath(project.path)}/raw/sources/wechat`
   await createDirectory(sourcesDir).catch(() => {})
 
-  const db = await loadWechatDb(project.path)
-  await retryPersistedImageMessages(config, project, store.llmConfig, db)
+  const db = await loadWechatDb(project.path, activeSession.accountId)
+  await retryPersistedImageMessages(config, project, store.llmConfig, db, activeSession.accountId)
 
   // Fire first poll immediately, then every pollIntervalMs
   const doPoll = async () => {
@@ -94,7 +97,7 @@ export async function startImport(config: WechatImportConfig): Promise<void> {
 
     pollInFlight = true
     try {
-      await pollOnce(config, project, currentStore.llmConfig, db)
+      await pollOnce(config, project, currentStore.llmConfig, db, activeSession.accountId, importStartedAtSec)
       pollFailures = 0
     } catch (err) {
       pollFailures++
@@ -120,6 +123,7 @@ export function stopImport(): void {
     pollTimer = null
   }
   session = null
+  importStartedAtSec = 0
 }
 
 export function getSession(): WechatSession | null {
@@ -168,6 +172,7 @@ export async function waitForLogin(
             token,
             nickname: userInfo.nickname || status.nickname || "",
             avatarUrl: userInfo.avatar_url || status.avatar_url || "",
+            accountId: userInfo.wxid || status.wxid || status.nickname || "wechat",
             fileTransferUserId: fileTransferId,
           }
           resolve(session)
@@ -194,6 +199,8 @@ async function pollOnce(
   project: WikiProject,
   llmConfig: LlmConfig,
   db: WechatImportDb,
+  accountId: string,
+  startedAtSec: number,
 ): Promise<void> {
   if (!session) return
 
@@ -223,6 +230,18 @@ async function pollOnce(
   let updatedDb = updateSyncKey(db, resp.syncKey)
 
   for (const msg of resp.messages) {
+    if (!db.lastSyncKey && startedAtSec > 0 && msg.createTime < startedAtSec - 5) {
+      updatedDb = markProcessed(updatedDb, msg.msgId, {
+        msgId: msg.msgId,
+        msgType: String(msg.type),
+        importedAt: Date.now(),
+        targetPath: "",
+        decision: "skipped",
+        skipReason: "historical_before_import_start",
+      })
+      continue
+    }
+
     if (isDuplicate(updatedDb, msg.msgId) && !shouldRetryProcessedMessage(updatedDb, msg)) {
       continue
     }
@@ -231,11 +250,11 @@ async function pollOnce(
     updatedDb = markProcessed(updatedDb, msg.msgId, entry)
   }
 
-  await saveWechatDb(project.path, updatedDb)
+  await saveWechatDb(project.path, updatedDb, accountId)
 
   // Persist chat messages so they survive restarts
   const latestMessages = useWikiStore.getState().wechatMessages
-  saveChatMessages(project.path, latestMessages).catch(() => {})
+  saveChatMessages(project.path, latestMessages, accountId).catch(() => {})
 }
 
 async function processMessage(
@@ -330,6 +349,7 @@ async function handleFileMessage(
       skipReason: "no_session",
     }
   }
+  const accountId = session.accountId
 
   // Check if bubble already cached this file locally (check store for latest content)
   const latestContent = getLatestMsgContent(msg.msgId) ?? msg.content
@@ -367,7 +387,7 @@ async function handleFileMessage(
       const fullPath = `${normalizePath(project.path)}/${targetPath}`
 
       await writeBinaryToProject(project.path, targetPath, new Uint8Array(data))
-      cacheFilePathOnMessage(project.path, msg, fullPath, targetPath, cdnInfo).catch(() => {})
+      cacheFilePathOnMessage(project.path, msg, fullPath, targetPath, cdnInfo, accountId).catch(() => {})
 
       const entry: WechatProcessedMessage = {
         ...base,
@@ -524,6 +544,7 @@ async function handleImageMessage(
       skipReason: "no_session",
     }
   }
+  const accountId = session.accountId
 
   // Check if bubble already cached this image locally (check store for latest content)
   const latestContent = getLatestMsgContent(msg.msgId) ?? msg.content
@@ -563,7 +584,7 @@ async function handleImageMessage(
     const fullPath = `${normalizePath(project.path)}/${targetPath}`
 
     await writeBinaryToProject(project.path, targetPath, new Uint8Array(data))
-    cacheImagePathOnMessage(project.path, msg, fullPath, targetPath).catch(() => {})
+    cacheImagePathOnMessage(project.path, msg, fullPath, targetPath, accountId).catch(() => {})
 
     const entry: WechatProcessedMessage = {
       ...base,
@@ -597,6 +618,7 @@ async function cacheImagePathOnMessage(
   msg: WechatMessage,
   localPath: string,
   localRelPath: string,
+  accountId: string,
 ): Promise<void> {
   let content = msg.content
   try {
@@ -619,7 +641,7 @@ async function cacheImagePathOnMessage(
   const store = useWikiStore.getState()
   store.updateWechatMessage?.(msg.msgId, { content })
 
-  const persisted = (await loadChatMessages(projectPath).catch(() => [])) as WechatMessage[]
+  const persisted = (await loadChatMessages(projectPath, accountId).catch(() => [])) as WechatMessage[]
   const seen = new Set<string>()
   const updated = persisted.map((item) => {
     seen.add(item.msgId)
@@ -628,7 +650,7 @@ async function cacheImagePathOnMessage(
   if (!seen.has(msg.msgId)) {
     updated.push({ ...msg, content })
   }
-  await saveChatMessages(projectPath, updated.slice(-500))
+  await saveChatMessages(projectPath, updated.slice(-500), accountId)
 }
 
 async function cacheFilePathOnMessage(
@@ -637,6 +659,7 @@ async function cacheFilePathOnMessage(
   localPath: string,
   localRelPath: string,
   cdnInfo: Record<string, unknown>,
+  accountId: string,
 ): Promise<void> {
   let content = msg.content
   try {
@@ -663,7 +686,7 @@ async function cacheFilePathOnMessage(
   const store = useWikiStore.getState()
   store.updateWechatMessage?.(msg.msgId, { content })
 
-  const persisted = (await loadChatMessages(projectPath).catch(() => [])) as WechatMessage[]
+  const persisted = (await loadChatMessages(projectPath, accountId).catch(() => [])) as WechatMessage[]
   const seen = new Set<string>()
   const updated = persisted.map((item) => {
     seen.add(item.msgId)
@@ -672,7 +695,7 @@ async function cacheFilePathOnMessage(
   if (!seen.has(msg.msgId)) {
     updated.push({ ...msg, content })
   }
-  await saveChatMessages(projectPath, updated.slice(-500))
+  await saveChatMessages(projectPath, updated.slice(-500), accountId)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -728,12 +751,12 @@ async function retryPersistedImageMessages(
   project: WikiProject,
   llmConfig: LlmConfig,
   db: WechatImportDb,
+  accountId: string,
 ): Promise<void> {
-  const persisted = await loadChatMessages(project.path).catch(() => [])
+  const persisted = await loadChatMessages(project.path, accountId).catch(() => [])
   const imageMessages = (persisted as WechatMessage[])
     .filter((msg) => {
       if (msg?.type !== 3) return false
-      if (!isDuplicate(db, msg.msgId)) return true
       return shouldRetryProcessedMessage(db, msg) && getInlineImageByteLength(msg.content) > 0
     })
     .slice(-20)
@@ -745,7 +768,7 @@ async function retryPersistedImageMessages(
     updatedDb = markProcessed(updatedDb, msg.msgId, entry)
   }
   Object.assign(db, updatedDb)
-  await saveWechatDb(project.path, updatedDb)
+  await saveWechatDb(project.path, updatedDb, accountId)
 }
 
 function getInlineImageByteLength(content: string): number {

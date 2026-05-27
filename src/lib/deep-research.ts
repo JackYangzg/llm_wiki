@@ -17,8 +17,9 @@ export function queueResearch(
   searchConfig: SearchApiConfig,
   searchQueries?: string[],
 ): string {
+  const pp = normalizePath(projectPath)
   const store = useResearchStore.getState()
-  const taskId = store.addTask(topic)
+  const taskId = store.addTask(topic, pp)
   // Store search queries on the task
   if (searchQueries && searchQueries.length > 0) {
     store.updateTask(taskId, { searchQueries })
@@ -27,7 +28,7 @@ export function queueResearch(
   store.setPanelOpen(true)
   // Start processing on next tick to ensure React has rendered the panel
   setTimeout(() => {
-    processQueue(projectPath, llmConfig, searchConfig)
+    processQueue(pp, llmConfig, searchConfig)
   }, 50)
   return taskId
 }
@@ -40,14 +41,18 @@ function processQueue(
   llmConfig: LlmConfig,
   searchConfig: SearchApiConfig,
 ) {
+  const pp = normalizePath(projectPath)
+  if (!matchesCurrentProject(pp)) return
   const store = useResearchStore.getState()
   const running = store.getRunningCount()
   const available = store.maxConcurrent - running
 
   for (let i = 0; i < available; i++) {
-    const next = useResearchStore.getState().getNextQueued()
+    const next = useResearchStore.getState().tasks.find(
+      (task) => task.status === "queued" && normalizePath(task.projectPath) === pp,
+    )
     if (!next) break
-    executeResearch(projectPath, next.id, next.topic, llmConfig, searchConfig)
+    executeResearch(pp, next.id, next.topic, llmConfig, searchConfig)
   }
 }
 
@@ -62,6 +67,7 @@ async function executeResearch(
   const store = useResearchStore.getState()
 
   try {
+    if (!isTaskCurrent(taskId, pp)) return
     // Step 1: Web search — use multiple queries if available, merge and deduplicate
     store.updateTask(taskId, { status: "searching" })
 
@@ -74,6 +80,7 @@ async function executeResearch(
     const seenUrls = new Set<string>()
 
     for (const query of queries) {
+      if (!isTaskCurrent(taskId, pp)) return
       try {
         const results = await webSearch(query, searchConfig, 5)
         for (const r of results) {
@@ -88,6 +95,7 @@ async function executeResearch(
     }
 
     const webResults = allResults
+    if (!isTaskCurrent(taskId, pp)) return
     store.updateTask(taskId, { webResults })
 
     if (webResults.length === 0) {
@@ -97,6 +105,7 @@ async function executeResearch(
     }
 
     // Step 2: LLM synthesis
+    if (!isTaskCurrent(taskId, pp)) return
     store.updateTask(taskId, { status: "synthesizing" })
 
     const searchContext = webResults
@@ -142,6 +151,7 @@ async function executeResearch(
       ],
       {
         onToken: (token) => {
+          if (!isTaskCurrent(taskId, pp)) return
           accumulated += token
           // Update synthesis progressively so UI shows real-time text
           useResearchStore.getState().updateTask(taskId, { synthesis: accumulated })
@@ -157,12 +167,14 @@ async function executeResearch(
     )
 
     // Check if errored during streaming
+    if (!isTaskCurrent(taskId, pp)) return
     if (useResearchStore.getState().tasks.find((t) => t.id === taskId)?.status === "error") {
       onTaskFinished(pp, llmConfig, searchConfig)
       return
     }
 
     // Step 3: Save to wiki
+    if (!isTaskCurrent(taskId, pp)) return
     store.updateTask(taskId, { status: "saving", synthesis: accumulated })
 
     const date = new Date().toISOString().slice(0, 10)
@@ -200,6 +212,7 @@ async function executeResearch(
     ].join("\n")
 
     await writeFile(filePath, pageContent)
+    if (!isTaskCurrent(taskId, pp)) return
     const savedPath = `wiki/queries/${fileName}`
 
     useResearchStore.getState().updateTask(taskId, {
@@ -217,9 +230,11 @@ async function executeResearch(
     }
 
     // Auto-ingest the research result to generate entities, concepts, cross-references
-    autoIngest(pp, `${pp}/${savedPath}`, llmConfig).catch((err) => {
-      console.error("Failed to auto-ingest research result:", err)
-    })
+    if (isTaskCurrent(taskId, pp)) {
+      autoIngest(pp, `${pp}/${savedPath}`, llmConfig).catch((err) => {
+        console.error("Failed to auto-ingest research result:", err)
+      })
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     useResearchStore.getState().updateTask(taskId, {
@@ -236,6 +251,18 @@ function onTaskFinished(
   llmConfig: LlmConfig,
   searchConfig: SearchApiConfig,
 ) {
+  if (!matchesCurrentProject(projectPath)) return
   // Process next queued task
   setTimeout(() => processQueue(projectPath, llmConfig, searchConfig), 100)
+}
+
+function matchesCurrentProject(projectPath: string): boolean {
+  const current = useWikiStore.getState().project?.path
+  return !!current && normalizePath(current) === normalizePath(projectPath)
+}
+
+function isTaskCurrent(taskId: string, projectPath: string): boolean {
+  if (!matchesCurrentProject(projectPath)) return false
+  const task = useResearchStore.getState().tasks.find((item) => item.id === taskId)
+  return !!task && normalizePath(task.projectPath) === normalizePath(projectPath)
 }

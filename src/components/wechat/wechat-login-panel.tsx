@@ -24,6 +24,7 @@ export function WechatLoginPanel() {
   const config = useWikiStore((s) => s.wechatImportConfig)
   const wechatDisconnected = useWikiStore((s) => s.wechatDisconnected)
   const setWechatDisconnected = useWikiStore((s) => s.setWechatDisconnected)
+  const clearWechatMessages = useWikiStore((s) => s.clearWechatMessages)
   const [phase, setPhase] = useState<LoginPhase>("idle")
   const [qrData, setQrData] = useState<string | null>(null)
   const [session, setSession] = useState<WechatSession | null>(getSession())
@@ -52,6 +53,9 @@ export function WechatLoginPanel() {
     waitForLogin(qrcode_id)
       .then((s) => {
         if (!mountedRef.current) return
+        if (session?.accountId !== s.accountId) {
+          clearWechatMessages()
+        }
         setSession(s)
         setPhase("logged_in")
         setQrData(null)
@@ -72,6 +76,7 @@ export function WechatLoginPanel() {
   const handleLogout = () => {
     stopImport()
     setSession(null)
+    clearWechatMessages()
     setPhase("idle")
     setQrData(null)
     setWechatDisconnected(false)

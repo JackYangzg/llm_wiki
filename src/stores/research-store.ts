@@ -3,6 +3,7 @@ import type { WebSearchResult } from "@/lib/web-search"
 
 export interface ResearchTask {
   id: string
+  projectPath: string
   topic: string
   searchQueries?: string[]
   status: "queued" | "searching" | "synthesizing" | "saving" | "done" | "error"
@@ -18,7 +19,7 @@ interface ResearchState {
   panelOpen: boolean
   maxConcurrent: number
 
-  addTask: (topic: string) => string
+  addTask: (topic: string, projectPath: string) => string
   updateTask: (id: string, updates: Partial<ResearchTask>) => void
   removeTask: (id: string) => void
   setPanelOpen: (open: boolean) => void
@@ -33,13 +34,14 @@ export const useResearchStore = create<ResearchState>((set, get) => ({
   panelOpen: false,
   maxConcurrent: 3,
 
-  addTask: (topic) => {
+  addTask: (topic, projectPath) => {
     const id = `research-${++counter}`
     set((state) => ({
       tasks: [
         ...state.tasks,
         {
           id,
+          projectPath,
           topic,
           status: "queued",
           webResults: [],

@@ -1,4 +1,4 @@
-import { createDirectory, fileExists, listDirectory, readFile, writeFile } from "@/commands/fs"
+import { createDirectory, deleteFile, fileExists, listDirectory, readFile, writeFile } from "@/commands/fs"
 import type {
   InspirationEvidence,
   InspirationFeedback,
@@ -11,10 +11,13 @@ import type {
 } from "@/lib/inspiration-schema"
 import type { InspirationConfig } from "@/stores/wiki-store"
 import { EMPTY_INSPIRATION_SNAPSHOT } from "@/lib/inspiration-schema"
-import { joinPath, normalizePath } from "@/lib/path-utils"
+import { enrichCreativeMetadata } from "@/lib/creative-pipeline"
+import { removePageEmbedding } from "@/lib/embedding"
+import { getFileStem, joinPath, normalizePath } from "@/lib/path-utils"
 import type { FileNode } from "@/types/wiki"
 
 const META_PATH = ".llm-wiki/inspiration.json"
+const REJECTED_IDEAS_DIR = ".llm-wiki/rejected-ideas"
 
 function todaySlug(date = new Date()): string {
   return date.toISOString().slice(0, 10)
@@ -28,6 +31,10 @@ export async function ensureInspirationDirs(projectPath: string, ideasPath = "wi
   const pp = normalizePath(projectPath)
   const dirs = [
     ".llm-wiki",
+    REJECTED_IDEAS_DIR,
+    `${REJECTED_IDEAS_DIR}/idea`,
+    `${REJECTED_IDEAS_DIR}/theme`,
+    `${REJECTED_IDEAS_DIR}/dream`,
     ideasPath,
     "wiki/inspirations",
     "wiki/inspirations/daily",
@@ -91,7 +98,7 @@ function normalizeItem(item: InspirationItem): InspirationItem {
   const reviewState = item.reviewState ?? "new"
   const type = item.type ?? "idea"
   const ideaStage = normalizeIdeaStage(item.ideaStage, reviewState, type)
-  return {
+  return enrichCreativeMetadata({
     ...item,
     origin: item.origin ?? (
       reviewState === "formal"
@@ -121,7 +128,7 @@ function normalizeItem(item: InspirationItem): InspirationItem {
     updatedAt: item.updatedAt ?? createdAt,
     evolutionCount: item.evolutionCount ?? 0,
     lifecycleStatus: item.lifecycleStatus ?? "idle",
-  }
+  })
 }
 
 function normalizeIdeaStage(
@@ -206,6 +213,8 @@ export function renderInspirationMarkdown(item: InspirationItem): string {
     "---",
     `type: ${item.type === "theme" ? "theme_digest" : item.type === "dream" ? "dream_sequence" : "idea_card"}`,
     `origin: ${item.origin}`,
+    `creative_type: ${item.creativeType ?? (item.type === "dream" ? "dream_idea" : item.type === "theme" ? "topic_idea" : "idea")}`,
+    `source_factory: ${item.sourceFactory ?? (item.type === "dream" ? "dream_factory" : item.type === "theme" ? "theme_factory" : "idea_factory")}`,
     `title: ${yamlString(item.title)}`,
     `strategy: ${item.strategy}`,
     `run_id: ${item.runId}`,
@@ -227,6 +236,8 @@ export function renderInspirationMarkdown(item: InspirationItem): string {
     `version: ${item.version ?? Math.max(1, (item.evolutionCount ?? 0) + 1)}`,
     item.triggerType ? `trigger_type: ${item.triggerType}` : "",
     item.lastTaskType ? `last_task_type: ${item.lastTaskType}` : "",
+    item.routingTarget ? `routing_target: ${item.routingTarget}` : "",
+    item.routingReason ? `routing_reason: ${yamlString(item.routingReason)}` : "",
     `novelty_score: ${item.scores.novelty}`,
     `groundedness_score: ${item.scores.groundedness}`,
     `goal_fit_score: ${item.scores.goalFit}`,
@@ -236,6 +247,10 @@ export function renderInspirationMarkdown(item: InspirationItem): string {
     yamlArray("source_knowledge_ids", item.sourceKnowledgeIds ?? item.evidence.map((e) => e.pagePath)),
     yamlArray("related_entities", item.relatedEntities),
     yamlArray("reasoning_path", item.reasoningPath),
+    yamlArray("methodologies", item.methodologies),
+    yamlArray("critiques", item.critiques),
+    yamlArray("knowledge_gaps", item.knowledgeGaps),
+    yamlArray("next_tasks", item.nextTasks),
     yamlArray("dream_material_ids", item.dreamMaterials?.map((material) => material.id)),
     yamlArray("dream_fragment_ids", item.dreamFragments?.map((fragment) => fragment.id)),
     yamlArray("dream_insight_ids", item.dreamInsights?.map((insight) => insight.id)),
@@ -250,6 +265,11 @@ export function renderInspirationMarkdown(item: InspirationItem): string {
     item.summary,
     "",
     item.body,
+    item.improvementSummary ? `\n## Improvement Summary\n\n${item.improvementSummary}` : "",
+    item.critiques?.length ? `\n## Critique\n\n${item.critiques.map((critique) => `- ${critique}`).join("\n")}` : "",
+    item.routingTarget ? `\n## Routing\n\n- Target: ${item.routingTarget}\n- Reason: ${item.routingReason ?? ""}` : "",
+    item.knowledgeGaps?.length ? `\n## Knowledge Gaps\n\n${item.knowledgeGaps.map((gap) => `- ${gap}`).join("\n")}` : "",
+    item.nextTasks?.length ? `\n## Next Tasks\n\n${item.nextTasks.map((task) => `- ${task}`).join("\n")}` : "",
     "",
     "## Evidence Trail",
     "",
@@ -285,14 +305,14 @@ export async function saveInspirationItems(
     const existingCreatedAt = frontmatterDateMs(existingMarkdown, "created_at")
       ?? frontmatterDateMs(existingMarkdown, "generated_at")
     const existingEnteredAt = frontmatterDateMs(existingMarkdown, "entered_at")
-    const withPath = {
+    const withPath = enrichCreativeMetadata({
       ...item,
       markdownPath,
       createdAt: existingCreatedAt ?? fallbackCreatedAt,
       enteredAt: existingEnteredAt ?? item.enteredAt ?? existingCreatedAt ?? fallbackCreatedAt,
       updatedAt: item.updatedAt ?? existingCreatedAt ?? fallbackCreatedAt,
       evolutionCount: item.evolutionCount ?? 0,
-    }
+    })
     await writeFile(markdownPath, renderInspirationMarkdown(withPath))
     saved.push(withPath)
   }
@@ -369,7 +389,7 @@ export async function appendInspirationFeedback(
       review_state: "formal",
       origin: "adopted",
       idea_stage: "adopted",
-    }, feedback.createdAt).catch(() => {})
+    }, feedback.createdAt).catch(() => undefined)
   }
   if (target && (feedback.action === "unpromote" || feedback.action === "unsave")) {
     await patchFrontmatterFields(target.markdownPath, {
@@ -377,11 +397,13 @@ export async function appendInspirationFeedback(
       idea_stage: feedback.action === "unpromote" ? "incubating" : (target.ideaStage ?? "candidate"),
     }, feedback.createdAt).catch(() => {})
   }
+  let archivedTarget: string | undefined
   if (target && feedback.action === "reject") {
-    await patchFrontmatterFields(target.markdownPath, {
+    archivedTarget = await archiveRejectedInspirationItem(projectPath, target, {
       review_state: "rejected",
+      lifecycle_status: "done",
       idea_stage: "archived",
-    }, feedback.createdAt).catch(() => {})
+    }, feedback.createdAt).catch(() => undefined)
   }
   const next = {
     ...snapshot,
@@ -395,7 +417,7 @@ export async function appendInspirationFeedback(
         const restoredOrigin = item.type === "dream" ? "dream" : item.type === "theme" ? "theme_lab" : "factory"
         return { ...item, origin: restoredOrigin as typeof item.origin, reviewState: "new" as const, ideaStage: "incubating" as const, maturityLevel: Math.max(3, item.maturityLevel ?? 3), updatedAt: feedback.createdAt }
       }
-      if (feedback.action === "reject") return { ...item, reviewState: "rejected" as const, ideaStage: "archived" as const, maturityLevel: 0, updatedAt: feedback.createdAt }
+      if (feedback.action === "reject") return { ...item, markdownPath: archivedTarget ?? item.markdownPath, reviewState: "rejected" as const, ideaStage: "archived" as const, maturityLevel: 0, updatedAt: feedback.createdAt }
       return item
     }),
   }
@@ -447,6 +469,13 @@ async function patchFrontmatterFields(markdownPath: string, fields: Record<strin
   if (!markdown.startsWith("---")) return
   const end = markdown.indexOf("\n---", 3)
   if (end < 0) return
+  await writeFile(markdownPath, patchFrontmatterMarkdown(markdown, fields, updatedAt))
+}
+
+function patchFrontmatterMarkdown(markdown: string, fields: Record<string, string>, updatedAt: number): string {
+  if (!markdown.startsWith("---")) return markdown
+  const end = markdown.indexOf("\n---", 3)
+  if (end < 0) return markdown
   let fm = markdown.slice(0, end + 4)
   const body = markdown.slice(end + 4)
   const setKey = (source: string, key: string, value: string) => {
@@ -457,7 +486,51 @@ async function patchFrontmatterFields(markdownPath: string, fields: Record<strin
     fm = setKey(fm, key, value)
   }
   fm = setKey(fm, "updated_at", new Date(updatedAt).toISOString())
-  await writeFile(markdownPath, fm + body)
+  return fm + body
+}
+
+async function rejectedArchivePath(projectPath: string, item: InspirationItem): Promise<string> {
+  const pp = normalizePath(projectPath)
+  const typeDir = item.type === "theme" ? "theme" : item.type === "dream" ? "dream" : "idea"
+  const dir = joinPath(pp, REJECTED_IDEAS_DIR, typeDir)
+  await createDirectory(dir).catch(() => {})
+  const fileName = item.markdownPath.split("/").pop() || `${item.id}.md`
+  return uniqueArchivePath(dir, fileName)
+}
+
+async function uniqueArchivePath(dir: string, fileName: string): Promise<string> {
+  const extIndex = fileName.lastIndexOf(".")
+  const stem = extIndex > 0 ? fileName.slice(0, extIndex) : fileName
+  const ext = extIndex > 0 ? fileName.slice(extIndex) : ".md"
+  let candidate = joinPath(dir, fileName)
+  let index = 2
+  while (await fileExists(candidate).catch(() => false)) {
+    candidate = joinPath(dir, `${stem}-${index}${ext}`)
+    index++
+  }
+  return candidate
+}
+
+async function archiveRejectedInspirationItem(
+  projectPath: string,
+  item: InspirationItem,
+  fields: Record<string, string>,
+  updatedAt: number,
+): Promise<string> {
+  if (!item.markdownPath) return item.markdownPath
+  const sourcePath = normalizePath(item.markdownPath)
+  const archivePath = await rejectedArchivePath(projectPath, item)
+  const markdown = await readFile(sourcePath)
+  await writeFile(archivePath, patchFrontmatterMarkdown(markdown, {
+    ...fields,
+    archived_from: sourcePath,
+  }, updatedAt))
+  if (sourcePath.includes("/wiki/")) {
+    await deleteFile(sourcePath)
+    const slug = getFileStem(sourcePath)
+    if (slug) await removePageEmbedding(projectPath, slug)
+  }
+  return archivePath
 }
 
 export function upsertRun(snapshot: InspirationSnapshot, run: InspirationRun): InspirationSnapshot {

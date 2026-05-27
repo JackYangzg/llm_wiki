@@ -494,6 +494,7 @@ export function WechatPanel() {
   const setWechatDisconnected = useWikiStore((s) => s.setWechatDisconnected)
   const setWechatPanelOpen = useWikiStore((s) => s.setWechatPanelOpen)
   const hasWechatMessages = useWikiStore((s) => s.wechatMessages.length > 0)
+  const setWechatMessages = useWikiStore((s) => s.setWechatMessages)
   const addWechatMessages = useWikiStore((s) => s.addWechatMessages)
   const clearWechatMessages = useWikiStore((s) => s.clearWechatMessages)
   const resetWechatUnread = useWikiStore((s) => s.resetWechatUnread)
@@ -512,14 +513,14 @@ export function WechatPanel() {
     }
   }, [resetWechatUnread])
 
-  // Load persisted chat messages on mount if store is empty
+  // Load persisted chat messages for the active project + WeChat account.
   useEffect(() => {
-    if (!project || hasWechatMessages) return
-    loadChatMessages(project.path).then((msgs) => {
-      if (!mountedRef.current || msgs.length === 0) return
-      addWechatMessages(msgs as WechatMessage[])
+    if (!project || !session) return
+    loadChatMessages(project.path, session.accountId).then((msgs) => {
+      if (!mountedRef.current) return
+      setWechatMessages(msgs as WechatMessage[])
     }).catch(() => {})
-  }, [project, hasWechatMessages])
+  }, [project?.path, session?.accountId, setWechatMessages])
 
   // Check for existing session on mount (in-memory + persisted)
   useEffect(() => {
@@ -536,8 +537,10 @@ export function WechatPanel() {
           token: "filehelper_session",
           nickname: status.nickname || "",
           avatarUrl: status.avatar_url || "",
+          accountId: status.wxid || status.nickname || "wechat",
           fileTransferUserId: "filehelper",
         }
+        clearWechatMessages()
         setSession(s)
         setPhase("logged_in")
         stopImport()
@@ -567,6 +570,9 @@ export function WechatPanel() {
       const s = await waitForLogin(qrcode_id)
       if (!mountedRef.current) return
 
+      if (session?.accountId !== s.accountId) {
+        clearWechatMessages()
+      }
       setSession(s)
       setPhase("logged_in")
       setQrData(null)
@@ -588,9 +594,9 @@ export function WechatPanel() {
   const handleLogout = useCallback(() => {
     stopImport()
     setSession(null)
+    clearWechatMessages()
     setPhase("idle")
     setQrData(null)
-    clearWechatMessages()
     setWechatDisconnected(false)
   }, [setWechatDisconnected, clearWechatMessages])
 

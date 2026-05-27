@@ -121,7 +121,13 @@
     "msgCount": "条消息",
     "startNewConversation": "开始新对话",
     "clickNewChatToBegin": "点击「新建对话」开始",
-    "typeAMessage": "输入消息..."
+    "typeAMessage": "输入消息...",
+    "edit": "修改",
+    "editMessage": "修改这条消息",
+    "retry": "重试",
+    "retryFromHere": "从这里重试",
+    "cancelEdit": "取消",
+    "saveAndRetry": "保存并重试"
   },
   "search": {
     "title": "搜索",
@@ -182,6 +188,32 @@
       "theme": "主题",
       "idea": "Idea",
       "dream": "梦境"
+    },
+    "creativeTypes": {
+      "idea": "普通点子",
+      "topic_idea": "主题点子",
+      "dream_idea": "梦境点子"
+    },
+    "methodologies": {
+      "double_diamond": "双钻",
+      "scamper": "SCAMPER",
+      "triz": "TRIZ",
+      "design_thinking": "设计思维",
+      "graph_structural_hole": "图谱结构洞",
+      "analogy_transfer": "类比迁移",
+      "counterfactual": "反事实",
+      "evidence_driven": "证据驱动"
+    },
+    "routes": {
+      "seed_pool": "种子池",
+      "candidate_pool": "候选池",
+      "incubation_pool": "孵化池",
+      "validation_pool": "验证池",
+      "mature_pool": "成熟池",
+      "dream_factory": "去造梦",
+      "research_task": "补研究",
+      "merge": "待合并",
+      "archive": "归档"
     },
     "reviewState": {
       "new": "新建",
@@ -774,6 +806,10 @@
     "collectTitle": "论文搜集",
     "topicPlaceholder": "输入研究方向、论文主题或问题...",
     "collect": "搜集",
+    "prepareQuery": "生成检索式",
+    "confirmQueryTitle": "确认检索式",
+    "confirmAndCollect": "确认并检索",
+    "cancelQuery": "取消",
     "collectHint": "从互联网上检索最近一年内最相关且权威的论文",
     "candidatesTitle": "候选论文",
     "candidateCount": "{{count}} 篇候选论文",
@@ -822,6 +858,7 @@
       "scheduledTimeHelp": "每天在此时间触发一次论文扫描。",
       "scanNow": "立即扫描",
       "scanning": "扫描中...",
+      "noTopicsForScan": "无法检索：请先在设置中配置并启用至少一个论文检索词。",
       "imported": "已导入",
       "noScansYet": "暂无扫描记录，点击「立即扫描」执行首次扫描。",
       "dailyResults": "每日监控结果",

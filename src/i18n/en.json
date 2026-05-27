@@ -121,7 +121,13 @@
     "msgCount": "msgs",
     "startNewConversation": "Start a new conversation",
     "clickNewChatToBegin": "Click \"New Chat\" to begin",
-    "typeAMessage": "Type a message..."
+    "typeAMessage": "Type a message...",
+    "edit": "Edit",
+    "editMessage": "Edit this message",
+    "retry": "Retry",
+    "retryFromHere": "Retry from here",
+    "cancelEdit": "Cancel",
+    "saveAndRetry": "Save & retry"
   },
   "search": {
     "title": "Search",
@@ -182,6 +188,32 @@
       "theme": "Theme",
       "idea": "Idea",
       "dream": "Dream"
+    },
+    "creativeTypes": {
+      "idea": "Idea",
+      "topic_idea": "Topic idea",
+      "dream_idea": "Dream-born idea"
+    },
+    "methodologies": {
+      "double_diamond": "Double diamond",
+      "scamper": "SCAMPER",
+      "triz": "TRIZ",
+      "design_thinking": "Design thinking",
+      "graph_structural_hole": "Graph structural hole",
+      "analogy_transfer": "Analogy transfer",
+      "counterfactual": "Counterfactual",
+      "evidence_driven": "Evidence-driven"
+    },
+    "routes": {
+      "seed_pool": "Seed pool",
+      "candidate_pool": "Candidate pool",
+      "incubation_pool": "Incubation pool",
+      "validation_pool": "Validation pool",
+      "mature_pool": "Mature pool",
+      "dream_factory": "Dream factory",
+      "research_task": "Research task",
+      "merge": "Merge",
+      "archive": "Archive"
     },
     "reviewState": {
       "new": "New",
@@ -774,6 +806,10 @@
     "collectTitle": "Paper collection",
     "topicPlaceholder": "Enter a research direction, paper topic, or question...",
     "collect": "Collect",
+    "prepareQuery": "Prepare query",
+    "confirmQueryTitle": "Confirm search query",
+    "confirmAndCollect": "Confirm & search",
+    "cancelQuery": "Cancel",
     "collectHint": "Search the internet for the most relevant and authoritative papers from the past year",
     "candidatesTitle": "Candidate papers",
     "candidateCount": "{{count}} candidate papers",
@@ -822,6 +858,7 @@
       "scheduledTimeHelp": "The scan runs once per day at this time.",
       "scanNow": "Scan Now",
       "scanning": "Scanning...",
+      "noTopicsForScan": "Cannot scan: configure and enable at least one paper search query in Settings first.",
       "imported": "Imported",
       "noScansYet": "No scans yet. Click \"Scan Now\" to run your first scan.",
       "dailyResults": "Daily Monitoring Results",
