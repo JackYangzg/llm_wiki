@@ -76,6 +76,11 @@ export interface SettingsDraft {
   inspirationDreamMinDurationMinutes: number
   inspirationDreamStepIntervalMinutes: number
   inspirationDreamMaxIterations: number
+  inspirationKnowledgeThreadEnabled: boolean
+  inspirationKnowledgeThreadAutoOnIngest: boolean
+  inspirationKnowledgeThreadAutoOnUserContext: boolean
+  inspirationScheduledThreadEvolution: boolean
+  inspirationThreadEvolutionIntervalHours: number
 
   // UI
   uiLanguage: string

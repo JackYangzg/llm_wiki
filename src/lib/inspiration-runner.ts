@@ -1,7 +1,7 @@
 import { readFile } from "@/commands/fs"
 import { streamChat } from "@/lib/llm-client"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
-import { collectInspirationSeeds, groupSeedsByCommunity, readProjectPurpose } from "@/lib/theme-mining"
+import { collectInspirationSeeds, groupSeedsByCommunity } from "@/lib/theme-mining"
 import { buildDreamWalk, hydrateDreamWalk } from "@/lib/dream-walk"
 import { dedupInspirationItems } from "@/lib/idea-dedup"
 import { rankWithMmr } from "@/lib/idea-ranking"
@@ -34,6 +34,9 @@ import { dreamReplayPrompt, ideaGenerationPrompt, themeMiningPrompt } from "@/li
 import { normalizePath } from "@/lib/path-utils"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { InspirationConfig } from "@/stores/wiki-store"
+import { loadKnowledgeThreadBundle } from "@/lib/knowledge-thread/storage"
+import { runKnowledgeThreadEvolution } from "@/lib/knowledge-thread/evolution"
+import type { KnowledgeThreadBundle } from "@/lib/knowledge-thread/types"
 
 interface RunnerCallbacks {
   onRunUpdate?: (run: InspirationRun) => void
@@ -140,6 +143,36 @@ function stageFromScore(item: InspirationItem): IdeaStage {
   if (item.scores.final >= 0.7) return "incubating"
   if (item.scores.final >= 0.55) return "candidate"
   return "seed"
+}
+
+function buildKnowledgeThreadGuidance(bundle: KnowledgeThreadBundle): string {
+  if (bundle.threads.length === 0) return ""
+  const gapsByThread = new Map<string, string[]>()
+  for (const gap of bundle.gaps) {
+    const list = gapsByThread.get(gap.threadId) ?? []
+    list.push(`${gap.title}: ${gap.description}`)
+    gapsByThread.set(gap.threadId, list)
+  }
+  const nodeTitlesByThread = new Map<string, string[]>()
+  for (const node of bundle.nodes) {
+    const list = nodeTitlesByThread.get(node.threadId) ?? []
+    list.push(node.title)
+    nodeTitlesByThread.set(node.threadId, list)
+  }
+  return [
+    "## Knowledge Thread Guidance",
+    "Idea Factory must mine and evolve ideas around these existing knowledge threads first. Prefer ideas that address a thread's core question, current gaps, or next directions.",
+    ...bundle.threads.slice(0, 8).map((thread, index) => [
+      `### Thread ${index + 1}: ${thread.name}`,
+      `Summary: ${thread.summary}`,
+      `Core question: ${thread.coreQuestion}`,
+      `Root topics: ${thread.rootTopics.slice(0, 8).join(", ") || "-"}`,
+      `Key concepts: ${thread.keyConcepts.slice(0, 8).join(", ") || "-"}`,
+      `Important nodes: ${(nodeTitlesByThread.get(thread.id) ?? []).slice(0, 8).join(", ") || "-"}`,
+      `Gaps: ${[...thread.gaps, ...(gapsByThread.get(thread.id) ?? [])].slice(0, 8).join(" | ") || "-"}`,
+      `Next directions: ${thread.nextDirections.slice(0, 8).join(" | ") || "-"}`,
+    ].join("\n")),
+  ].join("\n\n")
 }
 
 function enrichFactoryLifecycle(
@@ -339,11 +372,11 @@ async function generateIdeaItems(
   llmConfig: LlmConfig,
   topic: string,
   strategy: InspirationStrategy,
-  purpose: string,
   seeds: InspirationSeed[],
+  guidance = "",
 ): Promise<InspirationItem[]> {
   if (!hasUsableLlm(llmConfig)) return fallbackIdeaItems(runId, topic, strategy, seeds)
-  const prompt = ideaGenerationPrompt(topic, strategy, purpose, seeds)
+  const prompt = ideaGenerationPrompt(topic, strategy, seeds, guidance)
   const parsed = await completeJson(llmConfig, prompt.system, prompt.user).catch(() => null) as { ideas?: Array<Record<string, unknown>> } | null
   if (!parsed?.ideas?.length) return fallbackIdeaItems(runId, topic, strategy, seeds)
   return parsed.ideas.slice(0, 5).map((idea) => {
@@ -652,10 +685,7 @@ export async function runInspiration(
   }
   callbacks.onRunUpdate?.(run)
 
-  const [purpose, seeds] = await Promise.all([
-    readProjectPurpose(pp),
-    collectInspirationSeeds(pp, topic, runType === "daily" ? 96 : 48),
-  ])
+  const seeds = await collectInspirationSeeds(pp, topic, runType === "daily" ? 96 : 48)
 
   if (seeds.length === 0) {
     run = { ...run, status: "error", error: "No wiki pages available for inspiration.", finishedAt: Date.now() }
@@ -668,6 +698,11 @@ export async function runInspiration(
 
   let candidates: InspirationItem[] = []
   if (runType === "daily") {
+    let knowledgeThreads = await loadKnowledgeThreadBundle(pp).catch(() => null)
+    if (!knowledgeThreads || knowledgeThreads.threads.length === 0) {
+      knowledgeThreads = await runKnowledgeThreadEvolution(pp, llmConfig, { triggerType: "manual_refresh" }).catch(() => knowledgeThreads)
+    }
+    const knowledgeThreadGuidance = knowledgeThreads ? buildKnowledgeThreadGuidance(knowledgeThreads) : ""
     const snapshotBeforeEvolution = await loadInspirationSnapshot(pp).catch(() => null)
     const allFactoryIdeaIds = evolvableFactoryIdeaIds(snapshotBeforeEvolution)
     if (allFactoryIdeaIds.length > 0) {
@@ -684,18 +719,19 @@ export async function runInspiration(
       ].join("\n"))
       .join("\n\n") ?? ""
     const factoryPurpose = [
-      purpose,
-      "",
+      knowledgeThreadGuidance,
+      knowledgeThreadGuidance ? "" : "",
       "## Existing idea factory items",
       existingIdeaContext || "No existing factory ideas yet.",
       "",
       "Factory rule: all existing unadopted factory ideas have already been routed through the methodology iteration pipeline in this build. Now generate at most two genuinely new durable ideas. Prefer improving or branching from existing ideas instead of creating a large list.",
+      "Knowledge-thread rule: new ideas must be grounded in one or more knowledge threads above when thread guidance is available. Prefer thread gaps, next directions, cross-thread bridges, and unresolved core questions.",
     ].join("\n")
     const topicSeeds = await generateThemeItems(runId, llmConfig, factoryPurpose, seeds)
     const themeIdeas = await Promise.all(
       topicSeeds.slice(0, 2).flatMap((theme) =>
         (["bridge", "contradiction"] as InspirationStrategy[]).map((strategy) =>
-          generateIdeaItems(runId, llmConfig, theme.title, strategy, factoryPurpose, seeds.slice(0, 48)),
+          generateIdeaItems(runId, llmConfig, theme.title, strategy, seeds.slice(0, 48), factoryPurpose),
         ),
       ),
     )
@@ -705,13 +741,7 @@ export async function runInspiration(
   } else {
     const strategies: InspirationStrategy[] = ["bridge", "contradiction", "analogy", "timeline", "gap"]
     const themeTopic = topic?.trim() || "Untitled topic"
-    const themePurpose = [
-      purpose,
-      "",
-      `Theme Factory constraint: only generate topic ideas for the user's selected theme "${themeTopic}".`,
-      "Do not generate generic Idea Factory items. Every output must state how it fits this theme, which sub-direction it covers, and why it belongs in the Theme Lab.",
-    ].join("\n")
-    const batches = await Promise.all(strategies.map((strategy) => generateIdeaItems(runId, llmConfig, themeTopic, strategy, themePurpose, seeds)))
+    const batches = await Promise.all(strategies.map((strategy) => generateIdeaItems(runId, llmConfig, themeTopic, strategy, seeds)))
     candidates = batches.flat().map((item) => ({
       ...item,
       type: "theme" as const,

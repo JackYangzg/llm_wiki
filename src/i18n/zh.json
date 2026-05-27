@@ -143,6 +143,7 @@
       "factory": "点子工厂",
       "themeLab": "主题实验室",
       "dreamLab": "梦境实验室",
+      "knowledgeThreads": "知识脉络",
       "outcomes": "创意成果"
     },
     "factory": {
@@ -310,6 +311,33 @@
       "send": "发送",
       "thinking": "思考中...",
       "noModel": "当前没有可用的大模型配置，请先在设置中配置模型。"
+    },
+    "knowledgeThreads": {
+      "overview": "知识脉络总览",
+      "threadCount": "当前识别 {{count}} 条主线",
+      "empty": "还没有知识脉络，点击刷新开始分析。",
+      "emptyHint": "选择一条知识脉络，或先运行一次重新分析。",
+      "maturity": "成熟度",
+      "coverage": "覆盖度",
+      "coherence": "连贯度",
+      "novelty": "新颖度",
+      "activity": "活跃度",
+      "coreQuestion": "核心问题",
+      "pathMap": "知识主线地图",
+      "noNodes": "暂无结构化节点。",
+      "relations": "脉络关系",
+      "noEdges": "暂无结构化关系。",
+      "gaps": "当前缺口",
+      "nextDirections": "下一步建议",
+      "userContext": "用户补充描述",
+      "contextPlaceholder": "补充你希望这条脉络关注的方向、边界或纠偏信息...",
+      "submitContext": "提交并演进",
+      "evolutionLogs": "演进日志",
+      "noLogs": "暂无演进日志。",
+      "deleteThread": "删除知识脉络",
+      "deleteConfirm": "删除知识脉络「{{name}}」？此操作会同时移除它的节点、关系、缺口和相关演进日志。",
+      "openSidePanel": "辅助面板",
+      "sidePanelTitle": "缺口、补充与日志"
     }
   },
   "lint": {

@@ -2,6 +2,7 @@ import { readFile, listDirectory } from "@/commands/fs"
 import type { FileNode } from "@/types/wiki"
 import { buildRetrievalGraph, calculateRelevance } from "./graph-relevance"
 import { normalizePath } from "@/lib/path-utils"
+import { isSystemManagementId, isSystemManagementPath } from "@/lib/wiki-system-files"
 import Graph from "graphology"
 import louvain from "graphology-communities-louvain"
 
@@ -203,7 +204,7 @@ export async function buildWikiGraph(
   // extracted from them via auto-ingest are what belong in the graph.
   const HIDDEN_TYPES = new Set(["query"])
   for (const [id, node] of nodeMap) {
-    if (HIDDEN_TYPES.has(node.type)) {
+    if (HIDDEN_TYPES.has(node.type) || isSystemManagementId(id) || isSystemManagementPath(node.path)) {
       nodeMap.delete(id)
     }
   }

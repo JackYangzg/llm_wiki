@@ -3,20 +3,20 @@ import { methodologiesForStrategy, methodologyExecutionPlan, methodologyNames } 
 import type { InspirationSeed, InspirationStrategy } from "@/lib/inspiration-schema"
 
 export function themeMiningPrompt(
-  purpose: string,
+  guidance: string,
   seeds: InspirationSeed[],
 ): { system: string; user: string } {
   const system = [
     "You are a knowledge-base theme compiler.",
     "You can only derive themes from the provided evidence. Do not invent facts.",
-    buildLanguageDirective(purpose || seeds.map((s) => s.title).join("\n")),
+    buildLanguageDirective(guidance || seeds.map((s) => s.title).join("\n")),
     "Return strict JSON with this shape:",
     `{"themes":[{"title":"string","summary":"string","tension":"string","opportunity":"string","gap":"string","evidenceIndexes":[1,2],"confidence":"low|medium|high"}]}`,
   ].join("\n\n")
   const user = [
-    "Project purpose:",
-    purpose || "(No purpose.md content available.)",
-    "",
+    guidance ? "Factory guidance:" : "",
+    guidance || "",
+    guidance ? "" : "",
     "Evidence seeds:",
     ...seeds.map((seed, index) => [
       `[${index + 1}] ${seed.title}`,
@@ -32,8 +32,8 @@ export function themeMiningPrompt(
 export function ideaGenerationPrompt(
   topic: string,
   strategy: InspirationStrategy,
-  purpose: string,
   seeds: InspirationSeed[],
+  guidance = "",
 ): { system: string; user: string } {
   const methodologies = methodologiesForStrategy(strategy)
   const system = [
@@ -51,6 +51,9 @@ export function ideaGenerationPrompt(
     `Topic: ${topic}`,
     `Strategy: ${strategy}`,
     `Required methodologies: ${methodologyNames(methodologies)}`,
+    guidance ? "" : "",
+    guidance ? "Factory guidance:" : "",
+    guidance,
     "",
     "Methodology execution checklist:",
     methodologyExecutionPlan(methodologies),
@@ -66,9 +69,6 @@ export function ideaGenerationPrompt(
     "- trend: connect outside or newly imported signals with internal knowledge.",
     "- counterfactual: ask what changes if a cost, capability, or workflow constraint disappears.",
     "- dream: narrate a traceable associative path through the wiki.",
-    "",
-    "Project purpose:",
-    purpose || "(No purpose.md content available.)",
     "",
     "Evidence seeds:",
     ...seeds.map((seed, index) => [

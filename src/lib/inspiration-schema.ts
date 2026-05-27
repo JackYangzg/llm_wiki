@@ -1,4 +1,4 @@
-export type InspirationTab = "daily" | "themes" | "dreams" | "feedback"
+export type InspirationTab = "daily" | "themes" | "dreams" | "threads" | "feedback"
 
 export type InspirationRunType = "daily" | "factory" | "theme" | "dream"
 export type InspirationTriggerType = "manual" | "schedule" | "startup" | "source_watch"

@@ -1,6 +1,7 @@
 import { listDirectory, readFile, getFileModifiedTime } from "@/commands/fs"
 import { buildWikiGraph } from "@/lib/wiki-graph"
 import { joinPath, normalizePath } from "@/lib/path-utils"
+import { isKnowledgeProcessingEligiblePath } from "@/lib/wiki-system-files"
 import type { FileNode } from "@/types/wiki"
 import type { InspirationSeed } from "@/lib/inspiration-schema"
 
@@ -34,14 +35,6 @@ function excerpt(content: string): string {
     .slice(0, 700)
 }
 
-export async function readProjectPurpose(projectPath: string): Promise<string> {
-  try {
-    return await readFile(joinPath(normalizePath(projectPath), "purpose.md"))
-  } catch {
-    return ""
-  }
-}
-
 export async function collectInspirationSeeds(
   projectPath: string,
   topic?: string,
@@ -61,7 +54,7 @@ export async function collectInspirationSeeds(
 
   const seeds: InspirationSeed[] = []
   for (const file of files) {
-    if (file.path.includes("/wiki/inspirations/")) continue
+    if (!isKnowledgeProcessingEligiblePath(file.path)) continue
     let content = ""
     try {
       content = await readFile(file.path)

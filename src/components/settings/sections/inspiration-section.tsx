@@ -174,6 +174,81 @@ export function InspirationSection({ draft, setDraft }: Props) {
       </label>
 
       <div className="space-y-3 rounded-lg border p-3">
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={draft.inspirationKnowledgeThreadEnabled}
+            onChange={(e) => setDraft("inspirationKnowledgeThreadEnabled", e.target.checked)}
+            disabled={!draft.inspirationEnabled}
+            className="h-4 w-4"
+          />
+          <span className="text-sm">
+            {t("settings.sections.inspiration.knowledgeThreadEnabled", { defaultValue: "启用知识脉络" })}
+          </span>
+        </label>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={draft.inspirationKnowledgeThreadAutoOnIngest}
+              onChange={(e) => setDraft("inspirationKnowledgeThreadAutoOnIngest", e.target.checked)}
+              disabled={!draft.inspirationEnabled || !draft.inspirationKnowledgeThreadEnabled}
+              className="h-4 w-4"
+            />
+            <span className="text-sm">
+              {t("settings.sections.inspiration.knowledgeThreadOnIngest", { defaultValue: "新知识导入后自动演进" })}
+            </span>
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={draft.inspirationKnowledgeThreadAutoOnUserContext}
+              onChange={(e) => setDraft("inspirationKnowledgeThreadAutoOnUserContext", e.target.checked)}
+              disabled={!draft.inspirationEnabled || !draft.inspirationKnowledgeThreadEnabled}
+              className="h-4 w-4"
+            />
+            <span className="text-sm">
+              {t("settings.sections.inspiration.knowledgeThreadOnContext", { defaultValue: "用户补充描述后自动演进" })}
+            </span>
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={draft.inspirationScheduledThreadEvolution}
+              onChange={(e) => setDraft("inspirationScheduledThreadEvolution", e.target.checked)}
+              disabled={!draft.inspirationEnabled || !draft.inspirationKnowledgeThreadEnabled}
+              className="h-4 w-4"
+            />
+            <span className="text-sm">
+              {t("settings.sections.inspiration.scheduledThreadEvolution", { defaultValue: "定期演进知识脉络" })}
+            </span>
+          </label>
+          <div className="space-y-2">
+            <Label htmlFor="inspiration-thread-evolution-interval">
+              {t("settings.sections.inspiration.threadEvolutionInterval", { defaultValue: "脉络演进间隔（小时）" })}
+            </Label>
+            <Input
+              id="inspiration-thread-evolution-interval"
+              type="number"
+              min={1}
+              max={168}
+              value={draft.inspirationThreadEvolutionIntervalHours}
+              onChange={(e) => {
+                const value = parseInt(e.target.value, 10)
+                if (!Number.isNaN(value)) setDraft("inspirationThreadEvolutionIntervalHours", value)
+              }}
+              disabled={!draft.inspirationEnabled || !draft.inspirationKnowledgeThreadEnabled || !draft.inspirationScheduledThreadEvolution}
+            />
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {t("settings.sections.inspiration.knowledgeThreadHelp", {
+            defaultValue: "知识脉络会读取 wiki、overview、图谱社区和用户补充描述，持续识别主线、分支、缺口与下一步探索方向。",
+          })}
+        </p>
+      </div>
+
+      <div className="space-y-3 rounded-lg border p-3">
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="inspiration-dream-duration">

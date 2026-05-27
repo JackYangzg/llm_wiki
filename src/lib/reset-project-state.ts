@@ -13,7 +13,9 @@ import { useReviewStore } from "@/stores/review-store"
 import { useActivityStore } from "@/stores/activity-store"
 import { useResearchStore } from "@/stores/research-store"
 import { useInspirationStore } from "@/stores/inspiration-store"
+import { useKnowledgeThreadStore } from "@/stores/knowledge-thread-store"
 import { useWikiStore } from "@/stores/wiki-store"
+import { EMPTY_KNOWLEDGE_THREAD_BUNDLE } from "@/lib/knowledge-thread/types"
 
 export async function resetProjectState(): Promise<void> {
   // Zustand stores — clear all per-project data (synchronous)
@@ -52,6 +54,13 @@ export async function resetProjectState(): Promise<void> {
     evolvingItemIds: [],
     activeTaskId: null,
     activeStatus: null,
+    error: null,
+  })
+
+  useKnowledgeThreadStore.setState({
+    ...EMPTY_KNOWLEDGE_THREAD_BUNDLE,
+    selectedThreadId: null,
+    running: false,
     error: null,
   })
 

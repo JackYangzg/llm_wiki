@@ -165,6 +165,11 @@ interface InspirationConfig {
   dreamMinDurationMinutes: number
   dreamStepIntervalMinutes: number
   dreamMaxIterations: number
+  knowledgeThreadEnabled: boolean
+  autoEvolveKnowledgeThreadsOnIngest: boolean
+  autoEvolveKnowledgeThreadsOnUserContext: boolean
+  scheduledThreadEvolution: boolean
+  threadEvolutionIntervalHours: number
 }
 
 /**
@@ -436,6 +441,11 @@ export const useWikiStore = create<WikiState>((set) => ({
     dreamMinDurationMinutes: 60,
     dreamStepIntervalMinutes: 5,
     dreamMaxIterations: 3,
+    knowledgeThreadEnabled: true,
+    autoEvolveKnowledgeThreadsOnIngest: true,
+    autoEvolveKnowledgeThreadsOnUserContext: true,
+    scheduledThreadEvolution: false,
+    threadEvolutionIntervalHours: 24,
   },
 
   sourceWatchConfig: DEFAULT_SOURCE_WATCH_CONFIG,

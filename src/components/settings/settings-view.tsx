@@ -163,6 +163,11 @@ function initialDraft(
     inspirationDreamMinDurationMinutes: inspiration.dreamMinDurationMinutes,
     inspirationDreamStepIntervalMinutes: inspiration.dreamStepIntervalMinutes,
     inspirationDreamMaxIterations: inspiration.dreamMaxIterations,
+    inspirationKnowledgeThreadEnabled: inspiration.knowledgeThreadEnabled,
+    inspirationKnowledgeThreadAutoOnIngest: inspiration.autoEvolveKnowledgeThreadsOnIngest,
+    inspirationKnowledgeThreadAutoOnUserContext: inspiration.autoEvolveKnowledgeThreadsOnUserContext,
+    inspirationScheduledThreadEvolution: inspiration.scheduledThreadEvolution,
+    inspirationThreadEvolutionIntervalHours: inspiration.threadEvolutionIntervalHours,
     sourceWatchConfig: normalizeSourceWatchConfig(sourceWatch),
     apiEnabled: apiConfig.enabled,
     apiAllowUnauthenticated: apiConfig.allowUnauthenticated,
@@ -449,6 +454,11 @@ export function SettingsView() {
       dreamMinDurationMinutes: Math.max(60, Math.min(1440, draft.inspirationDreamMinDurationMinutes || 60)),
       dreamStepIntervalMinutes: Math.max(1, Math.min(120, draft.inspirationDreamStepIntervalMinutes || 5)),
       dreamMaxIterations: Math.max(1, Math.min(20, Math.floor(draft.inspirationDreamMaxIterations || 3))),
+      knowledgeThreadEnabled: draft.inspirationKnowledgeThreadEnabled,
+      autoEvolveKnowledgeThreadsOnIngest: draft.inspirationKnowledgeThreadAutoOnIngest,
+      autoEvolveKnowledgeThreadsOnUserContext: draft.inspirationKnowledgeThreadAutoOnUserContext,
+      scheduledThreadEvolution: draft.inspirationScheduledThreadEvolution,
+      threadEvolutionIntervalHours: Math.max(1, Math.min(168, Math.floor(draft.inspirationThreadEvolutionIntervalHours || 24))),
     }
     setInspirationConfig(newInspirationConfig)
     if (project) {

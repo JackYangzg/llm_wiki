@@ -259,6 +259,11 @@ export const DEFAULT_INSPIRATION_CONFIG: InspirationConfig = {
   dreamMinDurationMinutes: 60,
   dreamStepIntervalMinutes: 5,
   dreamMaxIterations: 3,
+  knowledgeThreadEnabled: true,
+  autoEvolveKnowledgeThreadsOnIngest: true,
+  autoEvolveKnowledgeThreadsOnUserContext: true,
+  scheduledThreadEvolution: false,
+  threadEvolutionIntervalHours: 24,
 }
 
 function normalizeInspirationConfig(config: Partial<InspirationConfig> | null | undefined): InspirationConfig {
@@ -297,6 +302,26 @@ function normalizeInspirationConfig(config: Partial<InspirationConfig> | null | 
       typeof config?.dreamMaxIterations === "number"
         ? Math.max(1, Math.min(20, Math.floor(config.dreamMaxIterations)))
         : DEFAULT_INSPIRATION_CONFIG.dreamMaxIterations,
+    knowledgeThreadEnabled:
+      typeof config?.knowledgeThreadEnabled === "boolean"
+        ? config.knowledgeThreadEnabled
+        : DEFAULT_INSPIRATION_CONFIG.knowledgeThreadEnabled,
+    autoEvolveKnowledgeThreadsOnIngest:
+      typeof config?.autoEvolveKnowledgeThreadsOnIngest === "boolean"
+        ? config.autoEvolveKnowledgeThreadsOnIngest
+        : DEFAULT_INSPIRATION_CONFIG.autoEvolveKnowledgeThreadsOnIngest,
+    autoEvolveKnowledgeThreadsOnUserContext:
+      typeof config?.autoEvolveKnowledgeThreadsOnUserContext === "boolean"
+        ? config.autoEvolveKnowledgeThreadsOnUserContext
+        : DEFAULT_INSPIRATION_CONFIG.autoEvolveKnowledgeThreadsOnUserContext,
+    scheduledThreadEvolution:
+      typeof config?.scheduledThreadEvolution === "boolean"
+        ? config.scheduledThreadEvolution
+        : DEFAULT_INSPIRATION_CONFIG.scheduledThreadEvolution,
+    threadEvolutionIntervalHours:
+      typeof config?.threadEvolutionIntervalHours === "number"
+        ? Math.max(1, Math.min(168, Math.floor(config.threadEvolutionIntervalHours)))
+        : DEFAULT_INSPIRATION_CONFIG.threadEvolutionIntervalHours,
   }
 }
 

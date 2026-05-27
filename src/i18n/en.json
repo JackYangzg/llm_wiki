@@ -143,6 +143,7 @@
       "factory": "Idea Factory",
       "themeLab": "Theme Lab",
       "dreamLab": "Dream Lab",
+      "knowledgeThreads": "Knowledge Threads",
       "outcomes": "Creative Outcomes"
     },
     "factory": {
@@ -310,6 +311,33 @@
       "send": "Send",
       "thinking": "Thinking...",
       "noModel": "No usable LLM is configured. Configure a model in Settings first."
+    },
+    "knowledgeThreads": {
+      "overview": "Knowledge Thread Overview",
+      "threadCount": "{{count}} threads identified",
+      "empty": "No knowledge threads yet. Refresh to analyze.",
+      "emptyHint": "Select a knowledge thread, or run analysis first.",
+      "maturity": "Maturity",
+      "coverage": "Coverage",
+      "coherence": "Coherence",
+      "novelty": "Novelty",
+      "activity": "Activity",
+      "coreQuestion": "Core question",
+      "pathMap": "Thread map",
+      "noNodes": "No structured nodes yet.",
+      "relations": "Relations",
+      "noEdges": "No structured relations yet.",
+      "gaps": "Current gaps",
+      "nextDirections": "Next directions",
+      "userContext": "User context",
+      "contextPlaceholder": "Add direction, scope, or correction for this thread...",
+      "submitContext": "Submit and evolve",
+      "evolutionLogs": "Evolution logs",
+      "noLogs": "No evolution logs yet.",
+      "deleteThread": "Delete knowledge thread",
+      "deleteConfirm": "Delete knowledge thread “{{name}}”? This also removes its nodes, relations, gaps, and related evolution logs.",
+      "openSidePanel": "Side Panel",
+      "sidePanelTitle": "Gaps, Context, and Logs"
     }
   },
   "lint": {

@@ -34,6 +34,7 @@ import { streamChat, type ChatMessage as LLMMessage } from "@/lib/llm-client"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { readFile } from "@/commands/fs"
 import { loadInspirationAskMessages, saveInspirationAskMessages } from "@/lib/inspiration-persist"
+import { KnowledgeThreadTab } from "@/components/inspiration/knowledge-thread-tab"
 import { queueResearch } from "@/lib/deep-research"
 import { normalizePath } from "@/lib/path-utils"
 import { useTranslation } from "react-i18next"
@@ -42,6 +43,7 @@ import remarkGfm from "remark-gfm"
 import remarkMath from "remark-math"
 
 const TABS: { id: InspirationTab; label: string; icon: typeof Lightbulb }[] = [
+  { id: "threads", label: "inspiration.tabs.knowledgeThreads", icon: GitBranch },
   { id: "daily", label: "inspiration.tabs.factory", icon: Lightbulb },
   { id: "themes", label: "inspiration.tabs.themeLab", icon: FlaskConical },
   { id: "dreams", label: "inspiration.tabs.dreamLab", icon: Moon },
@@ -820,7 +822,7 @@ export function InspirationView() {
     exploreExistingThemes,
   } = useInspirationStore()
 
-  const [tab, setTab] = useState<InspirationTab>("daily")
+  const [tab, setTab] = useState<InspirationTab>("threads")
   const [topic, setTopic] = useState("")
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({})
   const [dreamPickerOpen, setDreamPickerOpen] = useState(false)
@@ -884,6 +886,7 @@ export function InspirationView() {
     if (tab === "daily") return factoryItems
     if (tab === "themes") return items.filter((item) => item.origin === "theme_lab" && item.reviewState !== "formal" && item.reviewState !== "rejected")
     if (tab === "dreams") return items.filter((item) => item.origin === "dream" && item.reviewState !== "formal" && item.reviewState !== "rejected")
+    if (tab === "threads") return []
     return items.filter((item) => item.reviewState === "formal" || item.origin === "adopted")
   }, [factoryItems, items, tab])
 
@@ -1134,6 +1137,8 @@ export function InspirationView() {
           </div>
         )}
 
+        {tab === "threads" && <KnowledgeThreadTab />}
+
         {tab === "feedback" && (
           <div className="mb-4 grid gap-3 sm:grid-cols-4">
             <div className="rounded-lg border p-3">
@@ -1161,14 +1166,14 @@ export function InspirationView() {
           </div>
         )}
 
-        {runningByType[tab === "daily" ? "daily" : tab === "themes" ? "theme" : tab === "dreams" ? "dream" : "daily"] && tab !== "feedback" && (
+        {runningByType[tab === "daily" ? "daily" : tab === "themes" ? "theme" : tab === "dreams" ? "dream" : "daily"] && tab !== "feedback" && tab !== "threads" && (
           <div className="mb-4 flex items-center gap-2 rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
             {t("inspiration.runningCurrent", { status: statusByType[tab === "daily" ? "daily" : tab === "themes" ? "theme" : "dream"] ?? activeStatus ?? "queued" })}
           </div>
         )}
 
-        {visibleItems.length === 0 ? (
+        {tab !== "threads" && (visibleItems.length === 0 ? (
           <div className="flex min-h-[260px] flex-col items-center justify-center gap-2 rounded-lg border border-dashed text-center text-sm text-muted-foreground">
             <Lightbulb className="h-8 w-8 opacity-40" />
             <p>{tab === "feedback" ? t("inspiration.empty.outcomes") : t("inspiration.empty.module")}</p>
@@ -1222,7 +1227,7 @@ export function InspirationView() {
               ))}
             </div>
           </>
-        )}
+        ))}
       </div>
       <EvolutionGraphDialog
         item={evolutionItem}

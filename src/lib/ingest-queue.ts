@@ -65,6 +65,37 @@ function maxConcurrency(): number {
   return Math.max(1, useWikiStore.getState().ingestConcurrency ?? 1)
 }
 
+function maybeEvolveKnowledgeThreadsAfterIngest(
+  projectPath: string,
+  sourcePath: string,
+  writtenFiles: string[],
+): void {
+  const { inspirationConfig, llmConfig } = useWikiStore.getState()
+  if (
+    !inspirationConfig.enabled ||
+    !inspirationConfig.knowledgeThreadEnabled ||
+    !inspirationConfig.autoEvolveKnowledgeThreadsOnIngest
+  ) {
+    return
+  }
+
+  const changedWikiPages = writtenFiles
+    .map((file) => normalizePath(file))
+    .filter((file) => file.includes("/wiki/") || file.startsWith("wiki/"))
+    .map((file) => file.startsWith(`${normalizePath(projectPath)}/`) ? file.slice(normalizePath(projectPath).length + 1) : file)
+
+  import("@/lib/knowledge-thread/evolution")
+    .then(({ runKnowledgeThreadEvolution }) =>
+      runKnowledgeThreadEvolution(projectPath, llmConfig, {
+        triggerType: "new_source_ingested",
+        changedSourcePaths: [sourcePath],
+        changedWikiPages,
+      }),
+    )
+    .then(() => addLog("知识脉络已演进", `来源: ${getFileName(sourcePath)}`))
+    .catch((err) => console.warn("[knowledge-thread] auto evolution after ingest failed:", err))
+}
+
 /** Fill the pipeline by starting tasks until we reach the concurrency
  *  limit or run out of pending tasks. Safe to call multiple times. */
 function fillPipeline(projectId: string): void {
@@ -629,6 +660,7 @@ async function processNext(projectId: string): Promise<void> {
 
     console.log(`[Ingest Queue] Done: ${next.sourcePath}`)
     addLog("分析完成", `文件: ${getFileName(next.sourcePath)}`)
+    maybeEvolveKnowledgeThreadsAfterIngest(pp, next.sourcePath, writtenFiles)
   } catch (err) {
     if (currentProjectId !== projectId) return
     const message = err instanceof Error ? err.message : String(err)
