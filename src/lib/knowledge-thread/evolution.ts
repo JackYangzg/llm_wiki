@@ -40,6 +40,16 @@ function relativeToProject(projectPath: string, path: string): string {
   return normalized.startsWith(`${pp}/`) ? normalized.slice(pp.length + 1) : normalized
 }
 
+function pathKey(path: string): string {
+  return normalizePath(path).toLowerCase()
+}
+
+function pathMatches(page: string, targetPage: string): boolean {
+  const pageKey = pathKey(page)
+  const targetKey = pathKey(targetPage)
+  return pageKey === targetKey || pageKey.endsWith(`/${targetKey}`) || targetKey.endsWith(`/${pageKey}`)
+}
+
 function deriveSummary(name: string, seeds: InspirationSeed[]): string {
   const snippets = seeds
     .map((s) => s.snippet?.trim())
@@ -85,6 +95,115 @@ function cleanTitle(title: string): string {
 
 function seedTitles(seeds: InspirationSeed[], limit = 6): string[] {
   return seeds.map((seed) => cleanTitle(seed.title)).filter(Boolean).slice(0, limit)
+}
+
+function basenameWithoutExt(path: string): string {
+  return cleanTitle(path.split("/").pop() ?? path).toLowerCase()
+}
+
+function threadTerms(thread: KnowledgeThread): string[] {
+  const terms = [
+    thread.name,
+    ...thread.rootTopics,
+    ...thread.keyConcepts,
+    ...thread.sourcePages.map((page) => basenameWithoutExt(page)),
+  ]
+    .map((value) => cleanTitle(value).toLowerCase())
+    .filter((value) => value.length >= 2)
+  return [...new Set(terms)].slice(0, 16)
+}
+
+function threadSearchQuery(thread: KnowledgeThread, userContext?: string): string {
+  return [
+    thread.name,
+    ...thread.rootTopics.slice(0, 4),
+    ...thread.keyConcepts.slice(0, 4),
+    userContext,
+  ].filter(Boolean).join(" ")
+}
+
+function seedScoreForThread(seed: InspirationSeed, thread: KnowledgeThread, projectPath: string): number {
+  const seedPath = relativeToProject(projectPath, seed.path)
+  let score = thread.sourcePages.some((page) => pathMatches(seedPath, page)) ? 12 : 0
+  const haystack = `${cleanTitle(seed.title)}\n${seedPath}\n${seed.snippet ?? ""}`.toLowerCase()
+  for (const term of threadTerms(thread)) {
+    if (haystack.includes(term)) score += 2
+  }
+  return score
+}
+
+function filterSeedsForThread(seeds: InspirationSeed[], thread: KnowledgeThread, projectPath: string): InspirationSeed[] {
+  return seeds
+    .map((seed) => ({ seed, score: seedScoreForThread(seed, thread, projectPath) }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .map((item) => item.seed)
+    .slice(0, 18)
+}
+
+function artifactMatchesThread(
+  value: {
+    threadId?: string
+    title?: string
+    summary?: string
+    sourcePageIds?: string[]
+    relatedWikiLinks?: string[]
+  },
+  targetThread: KnowledgeThread,
+  existingThreadIds: Set<string>,
+): boolean {
+  if (value.threadId && value.threadId !== targetThread.id && existingThreadIds.has(value.threadId)) {
+    return false
+  }
+  const sourcePageIds = safeArray(value.sourcePageIds)
+  if (sourcePageIds.length > 0 && !sourcePageIds.some((page) => targetThread.sourcePages.some((target) => pathMatches(page, target)))) {
+    return false
+  }
+  const haystack = [
+    value.title,
+    value.summary,
+    ...sourcePageIds,
+    ...safeArray(value.relatedWikiLinks),
+  ].filter(Boolean).join("\n").toLowerCase()
+  if (!haystack.trim()) return true
+  if (value.threadId === targetThread.id) return true
+  return threadTerms(targetThread).some((term) => haystack.includes(term))
+}
+
+function artifactSourcePagesBelongToThread(sourcePageIds: string[] | undefined, targetThread: KnowledgeThread): boolean {
+  const sourcePages = safeArray(sourcePageIds)
+  if (sourcePages.length === 0) return true
+  return sourcePages.some((page) => targetThread.sourcePages.some((target) => pathMatches(page, target)))
+}
+
+function focusedContextText(
+  projectPath: string,
+  targetThread: KnowledgeThread,
+  seeds: InspirationSeed[],
+  nodes: KnowledgeThreadNode[],
+  gaps: KnowledgeThreadGap[],
+): string {
+  const seedText = seeds.map((seed, i) =>
+    `[${i + 1}] ${seed.title} (${seed.type}; community=${seed.community}; links=${seed.linkCount})\nPath: ${relativeToProject(projectPath, seed.path)}\n${seed.snippet}`,
+  ).join("\n\n")
+  const nodeText = nodes.slice(0, 24).map((node) =>
+    `- [${node.type}] ${node.title}: ${node.summary}`,
+  ).join("\n")
+  const gapText = gaps.slice(0, 12).map((gap) =>
+    `- ${gap.title}: ${gap.description}`,
+  ).join("\n")
+  return [
+    `## Target Thread Only\n${JSON.stringify({
+      id: targetThread.id,
+      name: targetThread.name,
+      rootTopics: targetThread.rootTopics,
+      keyConcepts: targetThread.keyConcepts,
+      sourcePages: targetThread.sourcePages,
+    }, null, 2)}`,
+    nodeText ? `## Existing Nodes In This Thread\n${nodeText}` : "",
+    gapText ? `## Existing Gaps In This Thread\n${gapText}` : "",
+    seedText ? `## Related Wiki Pages For This Thread\n${seedText}` : "## Related Wiki Pages For This Thread\nNo directly related wiki pages were found. Do not borrow content from other threads.",
+  ].filter(Boolean).join("\n\n")
 }
 
 function extractClaim(seed?: InspirationSeed): string {
@@ -385,8 +504,9 @@ function heuristicBundle(
     if (!targetThread) {
       return heuristicBundle(existing, { ...input, targetThreadId: undefined }, projectPath, seeds, context)
     }
-    const groups = groupSeedsByCommunity(seeds).filter((g) => g.length > 0).slice(0, 1)
-    const group = groups[0] ?? seeds.slice(0, 12)
+    const targetSeeds = filterSeedsForThread(seeds, targetThread, projectPath)
+    const groups = groupSeedsByCommunity(targetSeeds).filter((g) => g.length > 0).slice(0, 1)
+    const group = groups[0] ?? targetSeeds.slice(0, 12)
     if (group.length === 0) {
       const targetNodes = existing.nodes.filter((node) => node.threadId === targetThreadId)
       const targetGaps = existing.gaps.filter((gap) => gap.threadId === targetThreadId)
@@ -544,7 +664,19 @@ function normalizePayload(
   if (input.targetThreadId && meaningfulThreads.length > 0) {
     const targetThreadId = input.targetThreadId
     const previousThread = existing.threads.find((t) => t.id === targetThreadId)
-    const llmThread = meaningfulThreads.find((t) => t.id === targetThreadId) ?? meaningfulThreads[0]
+    const singleThreadCandidates = meaningfulThreads.filter((thread, index) => {
+      const rawId = payload.threads?.[index]?.id
+      if (rawId && String(rawId) !== targetThreadId && existingThreadIds.has(String(rawId))) return false
+      return artifactMatchesThread({
+        threadId: rawId ? String(rawId) : undefined,
+        title: thread.name,
+        summary: `${thread.summary}\n${thread.coreQuestion}`,
+        sourcePageIds: thread.sourcePages,
+        relatedWikiLinks: thread.rootTopics,
+      }, previousThread ?? thread, existingThreadIds)
+    })
+    const llmThread = singleThreadCandidates.find((t) => t.id === targetThreadId) ?? singleThreadCandidates[0]
+    if (!previousThread || !llmThread) return existing
     let updatedThread: KnowledgeThread = previousThread
       ? {
           ...previousThread,
@@ -560,6 +692,7 @@ function normalizePayload(
         }
       : { ...llmThread, id: targetThreadId, updatedAt: now }
     const generatedNodes = (payload.nodes ?? []).slice(0, 120).flatMap((node, index): KnowledgeThreadNode[] => {
+      if (!artifactMatchesThread(node, previousThread, existingThreadIds)) return []
       const title = String(node.title || `节点 ${index + 1}`)
       return [{
         id: String(node.id || `node-${shortId(title)}-${index}`),
@@ -577,9 +710,14 @@ function normalizePayload(
     })
     const threadNodes = generatedNodes.length > 0
       ? generatedNodes
-      : existing.nodes.filter((node) => node.threadId === targetThreadId)
+      : existing.nodes.filter((node) =>
+          node.threadId === targetThreadId &&
+          artifactSourcePagesBelongToThread(node.sourcePageIds, previousThread),
+        )
     const validNodeIds = new Set(threadNodes.map((n) => n.id))
     const generatedEdges = (payload.edges ?? []).slice(0, 180).flatMap((edge, index): KnowledgeThreadEdge[] => {
+      const edgeThreadId = edge.threadId ? String(edge.threadId) : ""
+      if (edgeThreadId && edgeThreadId !== targetThreadId && existingThreadIds.has(edgeThreadId)) return []
       const sourceNodeId = String(edge.sourceNodeId || "")
       const targetNodeId = String(edge.targetNodeId || "")
       if (!validNodeIds.has(sourceNodeId) || !validNodeIds.has(targetNodeId)) return []
@@ -600,6 +738,7 @@ function normalizePayload(
     const generatedGaps = (payload.gaps ?? []).slice(0, 60).flatMap((gap, index): KnowledgeThreadGap[] => {
       const title = String(gap.title || `知识缺口 ${index + 1}`)
       const description = String(gap.description || "")
+      if (!artifactMatchesThread(gap, previousThread, existingThreadIds)) return []
       if (isGenericGap(title, description)) return []
       return [{
         id: String(gap.id || `gap-${shortId(title)}-${index}`),
@@ -613,9 +752,13 @@ function normalizePayload(
         updatedAt: now,
       }]
     })
+    const threadNodeIds = new Set(threadNodes.map((node) => node.id))
     const threadGaps = generatedGaps.length > 0
       ? generatedGaps
-      : existing.gaps.filter((gap) => gap.threadId === targetThreadId)
+      : existing.gaps.filter((gap) =>
+          gap.threadId === targetThreadId &&
+          (gap.sourceNodeIds.length === 0 || gap.sourceNodeIds.some((nodeId) => threadNodeIds.has(nodeId))),
+        )
     updatedThread = {
       ...updatedThread,
       gaps: updatedThread.gaps.length > 0
@@ -746,16 +889,26 @@ export async function runKnowledgeThreadEvolution(
   const pp = normalizePath(projectPath)
   const existing = await loadKnowledgeThreadBundle(pp)
   const context = input.userContext
-  const { text: contextText, seeds } = await wikiContext(pp, context?.content)
+  const isSingleThread = Boolean(input.targetThreadId)
+  const targetThread = isSingleThread ? existing.threads.find((t) => t.id === input.targetThreadId) : null
+  const topic = targetThread ? threadSearchQuery(targetThread, context?.content) : context?.content
+  const wiki = await wikiContext(pp, topic)
+  const seeds = targetThread ? filterSeedsForThread(wiki.seeds, targetThread, pp) : wiki.seeds
+  const contextText = targetThread
+    ? focusedContextText(
+        pp,
+        targetThread,
+        seeds,
+        existing.nodes.filter((n) => n.threadId === targetThread.id),
+        existing.gaps.filter((g) => g.threadId === targetThread.id),
+      )
+    : wiki.text
 
   if (!hasUsableLlm(llmConfig)) {
     const next = heuristicBundle(existing, input, pp, seeds, context)
     await saveKnowledgeThreadBundle(pp, next)
     return next
   }
-
-  const isSingleThread = Boolean(input.targetThreadId)
-  const targetThread = isSingleThread ? existing.threads.find((t) => t.id === input.targetThreadId) : null
 
   const existingText = isSingleThread && targetThread
     ? JSON.stringify({
@@ -779,6 +932,8 @@ export async function runKnowledgeThreadEvolution(
         `You are given ONE target knowledge thread: "${targetThread.name}". Your task is to deepen it — add more nodes, refine edges, discover new gaps, and improve scores.`,
         `The thread's current core question is: "${targetThread.coreQuestion}".`,
         "A knowledge thread is a concrete storyline formed by a group of Wiki pages around a domain problem, including branches, evidence, gaps, and evolution directions.",
+        "Isolation rule: use ONLY the target thread, its existing nodes/gaps/logs, and the related wiki pages provided for this target. Do not import sections, nodes, source pages, or gaps from any other knowledge thread.",
+        `Every returned node, edge, gap, and thread.sourcePages entry must belong to targetThreadId "${targetThread.id}". If evidence belongs to another thread, omit it.`,
         "CRITICAL — thread.summary: Write a unique, content-specific description that captures what THIS thread covers. It must be clearly different from other threads. Ground every sentence in the actual wiki content. Never use template phrases.",
         "CRITICAL — thread.coreQuestion: Analyze this thread's knowledge AND its relationship with other threads (if any) to formulate a sharp, analytical research question. The question should probe contradictions, gaps, or unexplored connections between concepts.",
         "CRITICAL — thread.gaps and thread.nextDirections: regenerate them from the actual target thread content, nodes, gaps, recent logs, and wiki excerpts. Each item must name at least one actual concept/page/node from the provided content and say what is missing or what to do next. Do not copy generic placeholders.",

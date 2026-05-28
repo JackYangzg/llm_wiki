@@ -11,7 +11,7 @@ import {
   type ThreadEvolutionLog,
   type UserThreadContext,
 } from "@/lib/knowledge-thread/types"
-import { loadKnowledgeThreadBundle, moveThreadToTrash } from "@/lib/knowledge-thread/storage"
+import { deleteKnowledgeThreadPermanently, loadKnowledgeThreadBundle } from "@/lib/knowledge-thread/storage"
 import { runKnowledgeThreadEvolution } from "@/lib/knowledge-thread/evolution"
 
 interface KnowledgeThreadState extends KnowledgeThreadBundle {
@@ -79,7 +79,7 @@ export const useKnowledgeThreadStore = create<KnowledgeThreadState>((set, get) =
       contexts: state.contexts,
       logs: state.logs,
     }
-    const next = await moveThreadToTrash(projectPath, id, bundle)
+    const next = await deleteKnowledgeThreadPermanently(projectPath, id, bundle)
     const selected = state.selectedThreadId === id ? next.threads[0]?.id ?? null : state.selectedThreadId
     set({
       ...applyBundle(next),

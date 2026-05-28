@@ -23,6 +23,16 @@ function formatTime(ts: number): string {
   return new Date(ts).toLocaleString()
 }
 
+function pathKey(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+/g, "/").toLowerCase()
+}
+
+function pathMatches(page: string, targetPage: string): boolean {
+  const pageKey = pathKey(page)
+  const targetKey = pathKey(targetPage)
+  return pageKey === targetKey || pageKey.endsWith(`/${targetKey}`) || targetKey.endsWith(`/${pageKey}`)
+}
+
 export function KnowledgeThreadTab() {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
@@ -57,7 +67,13 @@ export function KnowledgeThreadTab() {
   )
   const threadNodes = useMemo(() => {
     if (!selectedThread) return []
-    const matched = nodes.filter((node) => node.threadId === selectedThread.id)
+    const matched = nodes.filter((node) =>
+      node.threadId === selectedThread.id &&
+      (
+        node.sourcePageIds.length === 0 ||
+        node.sourcePageIds.some((page) => selectedThread.sourcePages.some((target) => pathMatches(page, target)))
+      ),
+    )
     const seen = new Map<string, typeof matched[0]>()
     for (const node of matched) {
       const key = node.title.toLowerCase()
@@ -69,12 +85,27 @@ export function KnowledgeThreadTab() {
     return [...seen.values()]
   }, [nodes, selectedThread])
   const threadEdges = useMemo(
-    () => selectedThread ? edges.filter((edge) => edge.threadId === selectedThread.id) : [],
-    [edges, selectedThread],
+    () => {
+      if (!selectedThread) return []
+      const nodeIds = new Set(threadNodes.map((node) => node.id))
+      return edges.filter((edge) =>
+        edge.threadId === selectedThread.id &&
+        nodeIds.has(edge.sourceNodeId) &&
+        nodeIds.has(edge.targetNodeId),
+      )
+    },
+    [edges, selectedThread, threadNodes],
   )
   const threadGaps = useMemo(
-    () => selectedThread ? gaps.filter((gap) => gap.threadId === selectedThread.id) : [],
-    [gaps, selectedThread],
+    () => {
+      if (!selectedThread) return []
+      const nodeIds = new Set(threadNodes.map((node) => node.id))
+      return gaps.filter((gap) =>
+        gap.threadId === selectedThread.id &&
+        (gap.sourceNodeIds.length === 0 || gap.sourceNodeIds.some((nodeId) => nodeIds.has(nodeId))),
+      )
+    },
+    [gaps, selectedThread, threadNodes],
   )
   const threadContexts = useMemo(
     () => selectedThread
@@ -315,20 +346,16 @@ export function KnowledgeThreadTab() {
               ) : (
                 threadLogs.slice(0, 12).map((log) => {
                   const addedNodeDetails = log.addedNodes
-                    .map((id) => nodes.find((n) => n.id === id))
-                    .filter((node) => !selectedThread || node?.threadId === selectedThread.id)
+                    .map((id) => threadNodes.find((n) => n.id === id))
                     .filter(Boolean) as typeof nodes
                   const addedEdgeDetails = log.addedEdges
-                    .map((id) => edges.find((e) => e.id === id))
-                    .filter((edge) => !selectedThread || edge?.threadId === selectedThread.id)
+                    .map((id) => threadEdges.find((e) => e.id === id))
                     .filter(Boolean) as typeof edges
                   const newGapDetails = log.newGaps
-                    .map((id) => gaps.find((g) => g.id === id))
-                    .filter((gap) => !selectedThread || gap?.threadId === selectedThread.id)
+                    .map((id) => threadGaps.find((g) => g.id === id))
                     .filter(Boolean) as typeof gaps
                   const resolvedGapDetails = log.resolvedGaps
-                    .map((id) => gaps.find((g) => g.id === id))
-                    .filter((gap) => !selectedThread || gap?.threadId === selectedThread.id)
+                    .map((id) => threadGaps.find((g) => g.id === id))
                     .filter(Boolean) as typeof gaps
                   const logSummary = selectedThread && log.affectedThreadIds.length > 1
                     ? `已更新「${selectedThread.name}」相关演进：新增 ${addedNodeDetails.length} 个节点、${addedEdgeDetails.length} 条关系、${newGapDetails.length} 个缺口。`
@@ -353,8 +380,8 @@ export function KnowledgeThreadTab() {
                         <span className="font-medium text-emerald-600">+{addedEdgeDetails.length} 条新关系</span>
                         <ul className="mt-0.5 space-y-0.5 text-muted-foreground">
                           {addedEdgeDetails.slice(0, 3).map((e) => {
-                            const src = nodes.find((n) => n.id === e.sourceNodeId)
-                            const tgt = nodes.find((n) => n.id === e.targetNodeId)
+                            const src = threadNodes.find((n) => n.id === e.sourceNodeId)
+                            const tgt = threadNodes.find((n) => n.id === e.targetNodeId)
                             return <li key={e.id}>{src?.title ?? "?"} → {e.type} → {tgt?.title ?? "?"}</li>
                           })}
                           {addedEdgeDetails.length > 3 && <li>...及其他 {addedEdgeDetails.length - 3} 条</li>}

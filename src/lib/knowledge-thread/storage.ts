@@ -94,38 +94,64 @@ export async function loadTrash(projectPath: string): Promise<KnowledgeThreadTra
   return { entries }
 }
 
-export async function moveThreadToTrash(
-  projectPath: string,
+function removeThreadFromBundle(
   threadId: string,
   bundle: KnowledgeThreadBundle,
-): Promise<KnowledgeThreadBundle> {
+): KnowledgeThreadBundle {
   const thread = bundle.threads.find((t) => t.id === threadId)
   if (!thread) return bundle
   const threadNodes = bundle.nodes.filter((n) => n.threadId === threadId)
   const nodeIds = new Set(threadNodes.map((n) => n.id))
-  const threadEdges = bundle.edges.filter((e) => e.threadId === threadId)
   const threadGaps = bundle.gaps.filter((g) => g.threadId === threadId)
-  const trash = await loadTrash(projectPath)
-  const entry: TrashEntry = {
-    id: threadId,
-    thread,
-    nodes: threadNodes,
-    edges: threadEdges,
-    gaps: threadGaps,
-    deletedAt: Date.now(),
-  }
-  trash.entries.unshift(entry)
-  await writeJsonArray(projectPath, "trash", trash.entries.slice(0, 200))
+  const gapIds = new Set(threadGaps.map((g) => g.id))
+  const edgeIds = new Set(
+    bundle.edges
+      .filter((e) => e.threadId === threadId || nodeIds.has(e.sourceNodeId) || nodeIds.has(e.targetNodeId))
+      .map((e) => e.id),
+  )
   const next: KnowledgeThreadBundle = {
     threads: bundle.threads.filter((t) => t.id !== threadId),
     nodes: bundle.nodes.filter((n) => n.threadId !== threadId),
     edges: bundle.edges.filter((e) => e.threadId !== threadId && !nodeIds.has(e.sourceNodeId) && !nodeIds.has(e.targetNodeId)),
     gaps: bundle.gaps.filter((g) => g.threadId !== threadId),
     contexts: bundle.contexts.filter((c) => c.targetId !== threadId && !nodeIds.has(c.targetId ?? "")),
-    logs: bundle.logs.filter((l) => !l.affectedThreadIds.includes(threadId)),
+    logs: bundle.logs.filter((l) =>
+      !l.affectedThreadIds.includes(threadId) &&
+      !l.addedNodes.some((id) => nodeIds.has(id)) &&
+      !l.updatedNodes.some((id) => nodeIds.has(id)) &&
+      !l.addedEdges.some((id) => edgeIds.has(id)) &&
+      !l.newGaps.some((id) => gapIds.has(id)) &&
+      !l.resolvedGaps.some((id) => gapIds.has(id)),
+    ),
   }
-  await saveKnowledgeThreadBundle(projectPath, next)
   return next
+}
+
+async function removeThreadFromTrash(projectPath: string, threadId: string): Promise<void> {
+  const trash = await loadTrash(projectPath)
+  const nextEntries = trash.entries.filter((entry) => entry.id !== threadId && entry.thread.id !== threadId)
+  if (nextEntries.length !== trash.entries.length) {
+    await writeJsonArray(projectPath, "trash", nextEntries)
+  }
+}
+
+export async function deleteKnowledgeThreadPermanently(
+  projectPath: string,
+  threadId: string,
+  bundle: KnowledgeThreadBundle,
+): Promise<KnowledgeThreadBundle> {
+  const next = removeThreadFromBundle(threadId, bundle)
+  await saveKnowledgeThreadBundle(projectPath, next)
+  await removeThreadFromTrash(projectPath, threadId)
+  return next
+}
+
+export async function moveThreadToTrash(
+  projectPath: string,
+  threadId: string,
+  bundle: KnowledgeThreadBundle,
+): Promise<KnowledgeThreadBundle> {
+  return deleteKnowledgeThreadPermanently(projectPath, threadId, bundle)
 }
 
 export async function restoreThreadFromTrash(
