@@ -145,3 +145,16 @@ export const EMPTY_KNOWLEDGE_THREAD_BUNDLE: KnowledgeThreadBundle = {
   contexts: [],
   logs: [],
 }
+
+export interface TrashEntry {
+  id: string
+  thread: KnowledgeThread
+  nodes: KnowledgeThreadNode[]
+  edges: KnowledgeThreadEdge[]
+  gaps: KnowledgeThreadGap[]
+  deletedAt: number
+}
+
+export interface KnowledgeThreadTrash {
+  entries: TrashEntry[]
+}

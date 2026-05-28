@@ -336,6 +336,7 @@
       "noLogs": "暂无演进日志。",
       "deleteThread": "删除知识脉络",
       "deleteConfirm": "删除知识脉络「{{name}}」？此操作会同时移除它的节点、关系、缺口和相关演进日志。",
+      "iterateThread": "迭代此脉络",
       "openSidePanel": "辅助面板",
       "sidePanelTitle": "缺口、补充与日志"
     }

@@ -11,12 +11,13 @@ import {
   type ThreadEvolutionLog,
   type UserThreadContext,
 } from "@/lib/knowledge-thread/types"
-import { loadKnowledgeThreadBundle, saveKnowledgeThreadBundle } from "@/lib/knowledge-thread/storage"
+import { loadKnowledgeThreadBundle, moveThreadToTrash } from "@/lib/knowledge-thread/storage"
 import { runKnowledgeThreadEvolution } from "@/lib/knowledge-thread/evolution"
 
 interface KnowledgeThreadState extends KnowledgeThreadBundle {
   selectedThreadId: string | null
   running: boolean
+  runningThreadId: string | null
   error: string | null
   loadThreads: (projectPath: string) => Promise<void>
   selectThread: (id: string | null) => void
@@ -52,6 +53,7 @@ export const useKnowledgeThreadStore = create<KnowledgeThreadState>((set, get) =
   ...EMPTY_KNOWLEDGE_THREAD_BUNDLE,
   selectedThreadId: null,
   running: false,
+  runningThreadId: null,
   error: null,
 
   loadThreads: async (projectPath) => {
@@ -69,20 +71,15 @@ export const useKnowledgeThreadStore = create<KnowledgeThreadState>((set, get) =
 
   deleteThread: async (projectPath, id) => {
     const state = get()
-    const removedNodeIds = new Set(state.nodes.filter((node) => node.threadId === id).map((node) => node.id))
-    const next: KnowledgeThreadBundle = {
-      threads: state.threads.filter((thread) => thread.id !== id),
-      nodes: state.nodes.filter((node) => node.threadId !== id),
-      edges: state.edges.filter((edge) =>
-        edge.threadId !== id &&
-        !removedNodeIds.has(edge.sourceNodeId) &&
-        !removedNodeIds.has(edge.targetNodeId),
-      ),
-      gaps: state.gaps.filter((gap) => gap.threadId !== id),
-      contexts: state.contexts.filter((context) => context.targetId !== id && !removedNodeIds.has(context.targetId ?? "")),
-      logs: state.logs.filter((log) => !log.affectedThreadIds.includes(id)),
+    const bundle: KnowledgeThreadBundle = {
+      threads: state.threads,
+      nodes: state.nodes,
+      edges: state.edges,
+      gaps: state.gaps,
+      contexts: state.contexts,
+      logs: state.logs,
     }
-    await saveKnowledgeThreadBundle(projectPath, next)
+    const next = await moveThreadToTrash(projectPath, id, bundle)
     const selected = state.selectedThreadId === id ? next.threads[0]?.id ?? null : state.selectedThreadId
     set({
       ...applyBundle(next),
@@ -111,7 +108,7 @@ export const useKnowledgeThreadStore = create<KnowledgeThreadState>((set, get) =
 
   runEvolution: async (projectPath, llmConfig, input) => {
     if (get().running) return
-    set({ running: true, error: null })
+    set({ running: true, runningThreadId: input.targetThreadId ?? null, error: null })
     try {
       const bundle = await runKnowledgeThreadEvolution(projectPath, llmConfig, input)
       const selected = get().selectedThreadId
@@ -120,11 +117,13 @@ export const useKnowledgeThreadStore = create<KnowledgeThreadState>((set, get) =
         ...applyBundle(bundle),
         selectedThreadId: selectedStillExists ? selected : bundle.threads[0]?.id ?? null,
         running: false,
+        runningThreadId: null,
         error: null,
       })
     } catch (err) {
       set({
         running: false,
+        runningThreadId: null,
         error: err instanceof Error ? err.message : String(err),
       })
     }

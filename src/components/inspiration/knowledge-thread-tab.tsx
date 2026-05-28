@@ -36,6 +36,7 @@ export function KnowledgeThreadTab() {
     logs,
     selectedThreadId,
     running,
+    runningThreadId,
     error,
     loadThreads,
     selectThread,
@@ -54,10 +55,19 @@ export function KnowledgeThreadTab() {
     () => threads.find((thread) => thread.id === selectedThreadId) ?? threads[0] ?? null,
     [selectedThreadId, threads],
   )
-  const threadNodes = useMemo(
-    () => selectedThread ? nodes.filter((node) => node.threadId === selectedThread.id) : [],
-    [nodes, selectedThread],
-  )
+  const threadNodes = useMemo(() => {
+    if (!selectedThread) return []
+    const matched = nodes.filter((node) => node.threadId === selectedThread.id)
+    const seen = new Map<string, typeof matched[0]>()
+    for (const node of matched) {
+      const key = node.title.toLowerCase()
+      const existing = seen.get(key)
+      if (!existing || node.importance > existing.importance) {
+        seen.set(key, node)
+      }
+    }
+    return [...seen.values()]
+  }, [nodes, selectedThread])
   const threadEdges = useMemo(
     () => selectedThread ? edges.filter((edge) => edge.threadId === selectedThread.id) : [],
     [edges, selectedThread],
@@ -72,12 +82,26 @@ export function KnowledgeThreadTab() {
       : contexts.slice(0, 5),
     [contexts, selectedThread],
   )
+  const threadLogs = useMemo(
+    () => selectedThread
+      ? logs.filter((log) => log.affectedThreadIds.includes(selectedThread.id))
+      : logs,
+    [logs, selectedThread],
+  )
 
   async function handleRefresh() {
     if (!project) return
     await runEvolution(project.path, llmConfig, {
       triggerType: "manual_refresh",
       targetThreadId: selectedThread?.id,
+    })
+  }
+
+  async function handleIterateThread(threadId: string) {
+    if (!project) return
+    await runEvolution(project.path, llmConfig, {
+      triggerType: "manual_refresh",
+      targetThreadId: threadId,
     })
   }
 
@@ -122,8 +146,11 @@ export function KnowledgeThreadTab() {
                 key={thread.id}
                 thread={thread}
                 selected={thread.id === selectedThread?.id}
+                isIterating={runningThreadId === thread.id}
+                disabled={running}
                 onClick={() => selectThread(thread.id)}
                 onDelete={() => handleDeleteThread(thread)}
+                onIterate={() => handleIterateThread(thread.id)}
               />
             ))
           )}
@@ -283,20 +310,85 @@ export function KnowledgeThreadTab() {
               {t("inspiration.knowledgeThreads.evolutionLogs")}
             </h4>
             <div className="space-y-2">
-              {logs.length === 0 ? (
+              {threadLogs.length === 0 ? (
                 <p className="text-xs text-muted-foreground">{t("inspiration.knowledgeThreads.noLogs")}</p>
               ) : (
-                logs.slice(0, 8).map((log) => (
+                threadLogs.slice(0, 12).map((log) => {
+                  const addedNodeDetails = log.addedNodes
+                    .map((id) => nodes.find((n) => n.id === id))
+                    .filter((node) => !selectedThread || node?.threadId === selectedThread.id)
+                    .filter(Boolean) as typeof nodes
+                  const addedEdgeDetails = log.addedEdges
+                    .map((id) => edges.find((e) => e.id === id))
+                    .filter((edge) => !selectedThread || edge?.threadId === selectedThread.id)
+                    .filter(Boolean) as typeof edges
+                  const newGapDetails = log.newGaps
+                    .map((id) => gaps.find((g) => g.id === id))
+                    .filter((gap) => !selectedThread || gap?.threadId === selectedThread.id)
+                    .filter(Boolean) as typeof gaps
+                  const resolvedGapDetails = log.resolvedGaps
+                    .map((id) => gaps.find((g) => g.id === id))
+                    .filter((gap) => !selectedThread || gap?.threadId === selectedThread.id)
+                    .filter(Boolean) as typeof gaps
+                  const logSummary = selectedThread && log.affectedThreadIds.length > 1
+                    ? `已更新「${selectedThread.name}」相关演进：新增 ${addedNodeDetails.length} 个节点、${addedEdgeDetails.length} 条关系、${newGapDetails.length} 个缺口。`
+                    : log.summary
+                  return (
                   <div key={log.id} className="rounded-md border p-2">
-                    <div className="text-xs text-muted-foreground">{formatTime(log.createdAt)} / {log.triggerType}</div>
-                    <div className="mt-1 text-sm">{log.summary}</div>
+                    <div className="text-xs text-muted-foreground">{formatTime(log.createdAt)}</div>
+                    <div className="mt-1 text-sm">{logSummary}</div>
+                    {addedNodeDetails.length > 0 && (
+                      <div className="mt-1.5 text-xs">
+                        <span className="font-medium text-emerald-600">+{addedNodeDetails.length} 个新节点</span>
+                        <ul className="mt-0.5 space-y-0.5 text-muted-foreground">
+                          {addedNodeDetails.slice(0, 5).map((n) => (
+                            <li key={n.id}>[{n.type}] {n.title}</li>
+                          ))}
+                          {addedNodeDetails.length > 5 && <li>...及其他 {addedNodeDetails.length - 5} 个</li>}
+                        </ul>
+                      </div>
+                    )}
+                    {addedEdgeDetails.length > 0 && (
+                      <div className="mt-1 text-xs">
+                        <span className="font-medium text-emerald-600">+{addedEdgeDetails.length} 条新关系</span>
+                        <ul className="mt-0.5 space-y-0.5 text-muted-foreground">
+                          {addedEdgeDetails.slice(0, 3).map((e) => {
+                            const src = nodes.find((n) => n.id === e.sourceNodeId)
+                            const tgt = nodes.find((n) => n.id === e.targetNodeId)
+                            return <li key={e.id}>{src?.title ?? "?"} → {e.type} → {tgt?.title ?? "?"}</li>
+                          })}
+                          {addedEdgeDetails.length > 3 && <li>...及其他 {addedEdgeDetails.length - 3} 条</li>}
+                        </ul>
+                      </div>
+                    )}
+                    {newGapDetails.length > 0 && (
+                      <div className="mt-1 text-xs">
+                        <span className="font-medium text-amber-600">+{newGapDetails.length} 个新缺口</span>
+                        <ul className="mt-0.5 space-y-0.5 text-muted-foreground">
+                          {newGapDetails.slice(0, 3).map((g) => (
+                            <li key={g.id}>{g.title}</li>
+                          ))}
+                          {newGapDetails.length > 3 && <li>...及其他 {newGapDetails.length - 3} 个</li>}
+                        </ul>
+                      </div>
+                    )}
+                    {resolvedGapDetails.length > 0 && (
+                      <div className="mt-1 text-xs">
+                        <span className="font-medium text-green-600">{resolvedGapDetails.length} 个缺口已解决</span>
+                        <ul className="mt-0.5 space-y-0.5 text-muted-foreground">
+                          {resolvedGapDetails.slice(0, 3).map((g) => (
+                            <li key={g.id}>{g.title}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                     {log.nextTasks.length > 0 && (
                       <ul className="mt-1 text-xs text-muted-foreground">
                         {log.nextTasks.slice(0, 3).map((task) => <li key={task}>- {task}</li>)}
                       </ul>
                     )}
                   </div>
-                ))
+                )})
               )}
             </div>
           </section>
@@ -311,13 +403,19 @@ export function KnowledgeThreadTab() {
 function ThreadListItem({
   thread,
   selected,
+  isIterating,
+  disabled,
   onClick,
   onDelete,
+  onIterate,
 }: {
   thread: KnowledgeThread
   selected: boolean
+  isIterating: boolean
+  disabled: boolean
   onClick: () => void
   onDelete: () => void
+  onIterate: () => void
 }) {
   const { t } = useTranslation()
   return (
@@ -339,18 +437,33 @@ function ThreadListItem({
             ))}
           </div>
         </button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          title={t("inspiration.knowledgeThreads.deleteThread")}
-          onClick={(event) => {
-            event.stopPropagation()
-            onDelete()
-          }}
-        >
-          <Trash2 className="text-destructive" />
-        </Button>
+        <div className="flex shrink-0 flex-col gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            title={t("inspiration.knowledgeThreads.iterateThread")}
+            disabled={disabled}
+            onClick={(event) => {
+              event.stopPropagation()
+              onIterate()
+            }}
+          >
+            {isIterating ? <Loader2 className="h-3 w-3 animate-spin text-primary" /> : <RefreshCw className="h-3 w-3" />}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            title={t("inspiration.knowledgeThreads.deleteThread")}
+            onClick={(event) => {
+              event.stopPropagation()
+              onDelete()
+            }}
+          >
+            <Trash2 className="h-3 w-3 text-destructive" />
+          </Button>
+        </div>
       </div>
     </div>
   )

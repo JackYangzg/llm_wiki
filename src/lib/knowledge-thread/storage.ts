@@ -7,7 +7,9 @@ import {
   type KnowledgeThreadEdge,
   type KnowledgeThreadGap,
   type KnowledgeThreadNode,
+  type KnowledgeThreadTrash,
   type ThreadEvolutionLog,
+  type TrashEntry,
   type UserThreadContext,
 } from "./types"
 
@@ -20,6 +22,7 @@ const FILES = {
   gaps: "thread-gaps.json",
   contexts: "thread-contexts.json",
   logs: "thread-evolution-logs.json",
+  trash: "thread-trash.json",
 } as const
 
 function baseDir(projectPath: string): string {
@@ -83,4 +86,72 @@ export async function saveKnowledgeThreadBundle(
     writeJsonArray(projectPath, "contexts", bundle.contexts),
     writeJsonArray(projectPath, "logs", bundle.logs),
   ])
+}
+
+export async function loadTrash(projectPath: string): Promise<KnowledgeThreadTrash> {
+  await ensureKnowledgeThreadDir(projectPath)
+  const entries = await readJsonArray<TrashEntry>(projectPath, "trash")
+  return { entries }
+}
+
+export async function moveThreadToTrash(
+  projectPath: string,
+  threadId: string,
+  bundle: KnowledgeThreadBundle,
+): Promise<KnowledgeThreadBundle> {
+  const thread = bundle.threads.find((t) => t.id === threadId)
+  if (!thread) return bundle
+  const threadNodes = bundle.nodes.filter((n) => n.threadId === threadId)
+  const nodeIds = new Set(threadNodes.map((n) => n.id))
+  const threadEdges = bundle.edges.filter((e) => e.threadId === threadId)
+  const threadGaps = bundle.gaps.filter((g) => g.threadId === threadId)
+  const trash = await loadTrash(projectPath)
+  const entry: TrashEntry = {
+    id: threadId,
+    thread,
+    nodes: threadNodes,
+    edges: threadEdges,
+    gaps: threadGaps,
+    deletedAt: Date.now(),
+  }
+  trash.entries.unshift(entry)
+  await writeJsonArray(projectPath, "trash", trash.entries.slice(0, 200))
+  const next: KnowledgeThreadBundle = {
+    threads: bundle.threads.filter((t) => t.id !== threadId),
+    nodes: bundle.nodes.filter((n) => n.threadId !== threadId),
+    edges: bundle.edges.filter((e) => e.threadId !== threadId && !nodeIds.has(e.sourceNodeId) && !nodeIds.has(e.targetNodeId)),
+    gaps: bundle.gaps.filter((g) => g.threadId !== threadId),
+    contexts: bundle.contexts.filter((c) => c.targetId !== threadId && !nodeIds.has(c.targetId ?? "")),
+    logs: bundle.logs.filter((l) => !l.affectedThreadIds.includes(threadId)),
+  }
+  await saveKnowledgeThreadBundle(projectPath, next)
+  return next
+}
+
+export async function restoreThreadFromTrash(
+  projectPath: string,
+  threadId: string,
+): Promise<KnowledgeThreadBundle | null> {
+  const trash = await loadTrash(projectPath)
+  const index = trash.entries.findIndex((e) => e.id === threadId)
+  if (index === -1) return null
+  const entry = trash.entries[index]
+  trash.entries.splice(index, 1)
+  await writeJsonArray(projectPath, "trash", trash.entries)
+  const bundle = await loadKnowledgeThreadBundle(projectPath)
+  bundle.threads.push(entry.thread)
+  bundle.nodes.push(...entry.nodes)
+  bundle.edges.push(...entry.edges)
+  bundle.gaps.push(...entry.gaps)
+  await saveKnowledgeThreadBundle(projectPath, bundle)
+  return bundle
+}
+
+export async function permanentlyDeleteFromTrash(
+  projectPath: string,
+  threadId: string,
+): Promise<void> {
+  const trash = await loadTrash(projectPath)
+  trash.entries = trash.entries.filter((e) => e.id !== threadId)
+  await writeJsonArray(projectPath, "trash", trash.entries)
 }

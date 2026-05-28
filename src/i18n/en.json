@@ -336,6 +336,7 @@
       "noLogs": "No evolution logs yet.",
       "deleteThread": "Delete knowledge thread",
       "deleteConfirm": "Delete knowledge thread “{{name}}”? This also removes its nodes, relations, gaps, and related evolution logs.",
+      "iterateThread": "Iterate this thread",
       "openSidePanel": "Side Panel",
       "sidePanelTitle": "Gaps, Context, and Logs"
     }
