@@ -41,6 +41,10 @@
 - **Source Folder Auto-Watch** — detects external changes in `raw/sources/` and keeps ingest/delete cleanup in sync
 - **Deep Research** — LLM-optimized search topics, multi-query web search via Tavily, SerpApi, or SearXNG, auto-ingest results into wiki
 - **Async Review System** — LLM flags items for human judgment, predefined actions, pre-generated search queries
+- **Knowledge Threads** — LLM-driven structured knowledge evolution with nodes, edges, gaps, mainline steps, next directions, cross-thread relations, and evidence references; thread-specific iteration with relevance filtering and trash/recycle bin
+- **Creative Inspiration Suite** — Idea Factory (SCAMPER, TRIZ, design thinking, structural holes, analogy transfer, counterfactual, evidence-driven), Theme Lab, and Dream Lab with multi-iteration creative evolution and feedback system
+- **WeChat FileHelper Integration** — QR code login, message history sync, attachment download, card/link preview parsing, in-app chat messaging
+- **Paper Research Platform** — Academic paper PDF import and analysis, literature search with LLM query rewriting, arXiv daily monitoring, paper candidate collection and batch import
 - **Chrome Web Clipper** — one-click web page capture with auto-ingest into knowledge base
 - **Local HTTP API + AI Agent Skill** — built-in `127.0.0.1:19828` JSON API (token-protected) for hybrid search, file read, graph traversal, and source rescan; ready-made [agent skill](https://github.com/nashsu/llm_wiki_skill) installs into Claude Code / Codex with one command (`npx skills add …`)
 
@@ -340,7 +344,83 @@ The original is platform-agnostic (abstract pattern). We handle concrete cross-p
 - **Tauri v2** — native desktop on macOS, Windows, Linux
 - **GitHub Actions CI/CD** — automated builds for macOS (ARM + Intel), Windows (.msi), Linux (.deb / .AppImage)
 
-### 18. Other Additions
+### 18. Knowledge Threads — Structured Knowledge Evolution
+
+Not in the original. An LLM-driven system that organizes wiki knowledge into evolving, structured **knowledge threads**:
+
+**Thread Model:**
+- Each thread has a **name**, **summary** (with evidence references), **core question** (mechanism, tradeoff, evolution, contradiction, application, or gap), **root topics**, **key concepts**, and **source pages**
+- **Scores** track maturity, coverage, coherence, novelty, and activity — updated by LLM on each iteration
+- **Status lifecycle**: forming → active → mature → stale → archived
+- **Generation modes**: `llm` (full analysis), `local_candidate` (heuristic pre-population), or `repair`
+
+**Knowledge Graph per Thread:**
+- **Nodes** of 8 types: topic, concept, question, method, claim, case, gap, idea — each with source page references, confidence, and importance scores
+- **Edges** of 9 relationship types: contains, depends_on, supports, contradicts, evolves_to, inspires, derived_from, should_explore, related_to — each with reasoning and confidence
+- **Gaps** with structured metadata: gap type, why it matters, missing evidence, source node/page references, priority, and status (open → investigating → resolved → dismissed → watching)
+- **Mainline Steps** — an ordered storyline from background through core concept, key question, method, evidence, case, contradiction, gap, to next direction
+- **Next Directions** — structured action items with action type (read_more, ask_user, web_research, connect_nodes, validate_claim, compare_threads, generate_idea, update_schema), rationale, targets, expected output, effort level, and validation signal
+- **Cross-Thread Relations** — overlaps_with, depends_on, contradicts, evolves_to, complements, competes_with, shares_gap, inspires — with evidence references and confidence
+
+**Evolution Triggers:**
+- **New source ingested** — automatically updates threads related to new content
+- **User context added** — user provides direction or questions for the thread to explore
+- **Manual refresh** — full regeneration (3–12 threads) or single-thread iteration with relevance-filtered seeds
+- **Scheduled evolution** — periodic background thread maintenance
+
+**Thread Trash & Recovery:**
+- Deleted threads move to a **trash** with all artifacts (nodes, edges, gaps, mainline steps, next directions, relations), timestamped for recovery
+- **Restore** brings back the full thread with all associated data
+- **Permanent delete** removes from trash completely
+
+### 19. Creative Inspiration Suite
+
+Not in the original. A multi-tab inspiration workspace for generating and evolving creative ideas from wiki knowledge:
+
+**Idea Factory:**
+- 9 creative methodologies: SCAMPER, TRIZ, design thinking, graph structural holes, analogy transfer, counterfactual reasoning, evidence-driven, theme evolution, and dream walk
+- Ideas evolve through stages: seed → candidate → incubating → validated → mature
+- **Idea ranking** by novelty, feasibility, impact, and evidence support
+- **Idea deduplication** to merge similar concepts
+- User feedback and comments on generated ideas
+
+**Theme Lab:**
+- Theme extraction from wiki content using community detection and topic mining
+- Theme evolution with LLM-guided exploration of related concepts
+- Seed-based idea generation within thematic clusters
+
+**Dream Lab:**
+- Counterfactual and free-association creative ideation
+- Multi-step dream evolution: fragments → walk → synthesis
+- Cross-domain inspiration through unexpected concept pairing
+
+**Outcomes:**
+- Review and rate previously generated ideas
+- Track idea lifecycle and revisit past inspiration sessions
+
+### 20. WeChat FileHelper Integration
+
+Not in the original. Full WeChat FileHelper integration for importing conversations and media directly into the wiki:
+
+- **QR code login** — scan to authenticate with WeChat FileHelper
+- **Message history sync** — browse and import past conversations
+- **Attachment download** — images, documents, and files from WeChat conversations
+- **Card/link preview parsing** — extract and process shared links and articles
+- **In-app chat messaging** — send and receive messages within the app
+- **Auto-ingest** — imported messages and attachments are automatically processed through the ingest pipeline
+
+### 21. Paper Research Platform
+
+Not in the original. A dedicated academic paper research module:
+
+- **Paper PDF import** — direct PDF upload with automatic analysis
+- **Literature search** — web search with LLM query rewriting for academic sources
+- **arXiv daily monitoring** — periodic scanning of new papers matching research interests
+- **Paper candidate collection** — batch collection and review of papers before import
+- **Paper analysis** — LLM-generated summaries, key findings, methodology extraction, and cross-referencing with existing wiki knowledge
+- **PDF download** — download papers directly from arXiv and other open-access sources
+
+### 22. Other Additions
 
 - **i18n** — English + Chinese interface (react-i18next)
 - **Settings persistence** — LLM provider, API key, model, context size, language saved via Tauri Store
@@ -358,15 +438,16 @@ The original is platform-agnostic (abstract pattern). We handle concrete cross-p
 | Frontend | React 19 + TypeScript + Vite |
 | UI | shadcn/ui + Tailwind CSS v4 |
 | Editor | Milkdown (ProseMirror-based WYSIWYG) |
-| Graph | sigma.js + graphology + ForceAtlas2 |
+| Graph | sigma.js + graphology + ForceAtlas2 + Louvain |
 | Search | Tokenized search + graph relevance + optional vector (LanceDB) |
 | Vector DB | LanceDB (Rust, embedded, optional) |
-| PDF | pdf-extract |
+| PDF | pdf-extract + pdfium-render (Rust) |
 | Office | docx-rs + calamine |
-| i18n | react-i18next |
-| State | Zustand |
-| LLM | Streaming fetch (OpenAI, Anthropic, Google, Ollama, Custom) |
-| Web Search | Tavily, SerpApi, SearXNG JSON API |
+| i18n | react-i18next (English + Chinese) |
+| State | Zustand 5 |
+| LLM | Streaming fetch (OpenAI, Anthropic, Google, Azure, Ollama, DeepSeek, MiniMax, Claude Code CLI, Codex CLI, Custom) |
+| Web Search | Tavily, SerpApi, SearXNG, MiniMax, Ollama |
+| WeChat | WeChat FileHelper protocol (QR login, message sync, attachment download) |
 
 ## Installation
 
@@ -453,7 +534,8 @@ my-wiki/
 │   ├── synthesis/          # Cross-source analysis
 │   └── comparisons/        # Side-by-side comparisons
 ├── .obsidian/              # Obsidian vault config (auto-generated)
-└── .llm-wiki/              # App config, chat history, review items
+└── .llm-wiki/              # App config, chat history, review items,
+                            #   knowledge threads data, inspiration snapshots
 ```
 
 ## Star History
