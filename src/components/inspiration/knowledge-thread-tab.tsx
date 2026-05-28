@@ -42,6 +42,9 @@ export function KnowledgeThreadTab() {
     nodes,
     edges,
     gaps,
+    mainlineSteps,
+    nextDirections: structuredNextDirections,
+    relations,
     contexts,
     logs,
     selectedThreadId,
@@ -102,10 +105,42 @@ export function KnowledgeThreadTab() {
       const nodeIds = new Set(threadNodes.map((node) => node.id))
       return gaps.filter((gap) =>
         gap.threadId === selectedThread.id &&
-        (gap.sourceNodeIds.length === 0 || gap.sourceNodeIds.some((nodeId) => nodeIds.has(nodeId))),
+        ((gap.sourceNodeIds ?? []).length === 0 || (gap.sourceNodeIds ?? []).some((nodeId) => nodeIds.has(nodeId))),
       )
     },
     [gaps, selectedThread, threadNodes],
+  )
+  const threadMainlineSteps = useMemo(
+    () => {
+      if (!selectedThread) return []
+      const nodeIds = new Set(threadNodes.map((node) => node.id))
+      return mainlineSteps
+        .filter((step) =>
+          step.threadId === selectedThread.id &&
+          (!step.nodeId || nodeIds.has(step.nodeId)),
+        )
+        .sort((a, b) => a.order - b.order)
+    },
+    [mainlineSteps, selectedThread, threadNodes],
+  )
+  const threadNextDirections = useMemo(
+    () => {
+      if (!selectedThread) return []
+      const nodeIds = new Set(threadNodes.map((node) => node.id))
+      const gapIds = new Set(threadGaps.map((gap) => gap.id))
+      return structuredNextDirections.filter((direction) =>
+        direction.threadId === selectedThread.id &&
+        ((direction.targetNodeIds ?? []).length === 0 || (direction.targetNodeIds ?? []).some((nodeId) => nodeIds.has(nodeId))) &&
+        ((direction.targetGapIds ?? []).length === 0 || (direction.targetGapIds ?? []).some((gapId) => gapIds.has(gapId))),
+      )
+    },
+    [selectedThread, structuredNextDirections, threadGaps, threadNodes],
+  )
+  const threadRelations = useMemo(
+    () => selectedThread
+      ? relations.filter((relation) => relation.sourceThreadId === selectedThread.id || relation.targetThreadId === selectedThread.id)
+      : [],
+    [relations, selectedThread],
   )
   const threadContexts = useMemo(
     () => selectedThread
@@ -150,8 +185,8 @@ export function KnowledgeThreadTab() {
   }
 
   return (
-    <div className="relative flex min-h-[620px] overflow-hidden rounded-lg border bg-background">
-      <aside className="w-80 shrink-0 border-r bg-muted/20">
+    <div className="relative flex h-full min-h-0 overflow-hidden rounded-lg border bg-background">
+      <aside className="flex min-h-0 w-80 shrink-0 flex-col border-r bg-muted/20">
         <div className="border-b p-3">
           <div className="flex items-center justify-between gap-2">
             <div>
@@ -166,7 +201,7 @@ export function KnowledgeThreadTab() {
           </div>
           {error && <div className="mt-2 rounded border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive">{error}</div>}
         </div>
-        <div className="max-h-[560px] overflow-auto p-2">
+        <div className="min-h-0 flex-1 overflow-auto p-2">
           {threads.length === 0 ? (
             <div className="rounded-md border border-dashed p-4 text-center text-xs text-muted-foreground">
               {t("inspiration.knowledgeThreads.empty")}
@@ -229,7 +264,17 @@ export function KnowledgeThreadTab() {
             <section className="rounded-md border p-3">
               <h4 className="mb-3 text-sm font-semibold">{t("inspiration.knowledgeThreads.pathMap")}</h4>
               <div className="space-y-2">
-                {threadNodes.length === 0 ? (
+                {threadMainlineSteps.length > 0 ? (
+                  threadMainlineSteps.map((step) => (
+                    <div key={step.id} className="rounded-md border bg-muted/20 p-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium">{step.order}. {step.title}</span>
+                        <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">{step.role}</span>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">{step.summary}</p>
+                    </div>
+                  ))
+                ) : threadNodes.length === 0 ? (
                   <p className="text-xs text-muted-foreground">{t("inspiration.knowledgeThreads.noNodes")}</p>
                 ) : (
                   threadNodes
@@ -267,6 +312,21 @@ export function KnowledgeThreadTab() {
                     )
                   })
                 )}
+                {threadRelations.length > 0 && (
+                  <div className="mt-3 border-t pt-2">
+                    {threadRelations.slice(0, 6).map((relation) => {
+                      const otherThreadId = relation.sourceThreadId === selectedThread.id ? relation.targetThreadId : relation.sourceThreadId
+                      const otherThread = threads.find((thread) => thread.id === otherThreadId)
+                      return (
+                        <div key={relation.id} className="mt-1 text-xs text-muted-foreground">
+                          <span className="font-medium text-foreground">{relation.type}</span>
+                          <span> · {otherThread?.name ?? otherThreadId}</span>
+                          {relation.reason ? <span>：{relation.reason}</span> : null}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             </section>
           </div>
@@ -299,6 +359,14 @@ export function KnowledgeThreadTab() {
                     <div key={gap.id} className="rounded-md border p-2">
                       <div className="text-sm font-medium">{gap.title}</div>
                       <div className="text-xs text-muted-foreground">{gap.description}</div>
+                      {gap.whyItMatters && (
+                        <div className="mt-1 text-xs text-muted-foreground">{gap.whyItMatters}</div>
+                      )}
+                      {(gap.missingEvidence ?? []).length > 0 && (
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {(gap.missingEvidence ?? []).slice(0, 3).join("；")}
+                        </div>
+                      )}
                     </div>
                   ))
                 : selectedThread?.gaps.map((gap) => <div key={gap} className="rounded-md border p-2 text-xs text-muted-foreground">{gap}</div>)}
@@ -307,9 +375,24 @@ export function KnowledgeThreadTab() {
 
           <section className="rounded-md border bg-background p-3">
             <h4 className="mb-2 text-sm font-semibold">{t("inspiration.knowledgeThreads.nextDirections")}</h4>
-            <ul className="space-y-1 text-xs text-muted-foreground">
-              {(selectedThread?.nextDirections ?? []).map((direction) => <li key={direction}>- {direction}</li>)}
-            </ul>
+            <div className="space-y-2">
+              {threadNextDirections.length > 0
+                ? threadNextDirections.map((direction) => (
+                    <div key={direction.id} className="rounded-md border p-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium">{direction.title}</span>
+                        <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">{direction.actionType}</span>
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">{direction.rationale}</div>
+                      {direction.expectedOutput && (
+                        <div className="mt-1 text-xs text-muted-foreground">{direction.expectedOutput}</div>
+                      )}
+                    </div>
+                  ))
+                : (selectedThread?.nextDirections ?? []).map((direction) => (
+                    <div key={direction} className="rounded-md border p-2 text-xs text-muted-foreground">{direction}</div>
+                  ))}
+            </div>
           </section>
 
           <section className="rounded-md border bg-background p-3">

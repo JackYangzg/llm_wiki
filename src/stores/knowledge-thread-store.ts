@@ -7,6 +7,9 @@ import {
   type KnowledgeThreadEdge,
   type KnowledgeThreadGap,
   type KnowledgeThreadNode,
+  type KnowledgeThreadRelation,
+  type ThreadMainlineStep,
+  type ThreadNextDirection,
   type ThreadEvolutionInput,
   type ThreadEvolutionLog,
   type UserThreadContext,
@@ -38,12 +41,16 @@ interface KnowledgeThreadState extends KnowledgeThreadBundle {
 function applyBundle(bundle: KnowledgeThreadBundle): Pick<
   KnowledgeThreadState,
   "threads" | "nodes" | "edges" | "gaps" | "contexts" | "logs"
+  | "mainlineSteps" | "nextDirections" | "relations"
 > {
   return {
     threads: bundle.threads,
     nodes: bundle.nodes,
     edges: bundle.edges,
     gaps: bundle.gaps,
+    mainlineSteps: bundle.mainlineSteps,
+    nextDirections: bundle.nextDirections,
+    relations: bundle.relations,
     contexts: bundle.contexts,
     logs: bundle.logs,
   }
@@ -76,6 +83,9 @@ export const useKnowledgeThreadStore = create<KnowledgeThreadState>((set, get) =
       nodes: state.nodes,
       edges: state.edges,
       gaps: state.gaps,
+      mainlineSteps: state.mainlineSteps,
+      nextDirections: state.nextDirections,
+      relations: state.relations,
       contexts: state.contexts,
       logs: state.logs,
     }
@@ -135,6 +145,9 @@ export type {
   KnowledgeThreadNode,
   KnowledgeThreadEdge,
   KnowledgeThreadGap,
+  KnowledgeThreadRelation,
+  ThreadMainlineStep,
+  ThreadNextDirection,
   ThreadEvolutionLog,
   UserThreadContext,
 }

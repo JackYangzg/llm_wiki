@@ -11,6 +11,15 @@ import {
   type KnowledgeThreadEdge,
   type KnowledgeThreadGap,
   type KnowledgeThreadNode,
+  type KnowledgeThreadRelation,
+  type CoreQuestionType,
+  type EvidenceRef,
+  type ThreadGenerationMode,
+  type ThreadMainlineRole,
+  type ThreadMainlineStep,
+  type ThreadNextDirection,
+  type ThreadNextDirectionActionType,
+  type ThreadValidationStatus,
   type ThreadEvolutionInput,
   type ThreadEvolutionLog,
   type UserThreadContext,
@@ -32,6 +41,43 @@ function shortId(text: string): string {
 
 function safeArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean).slice(0, 12) : []
+}
+
+function safeEvidenceRefs(value: unknown, fallback: EvidenceRef[] = []): EvidenceRef[] {
+  if (!Array.isArray(value)) return fallback
+  return value.flatMap((item, index): EvidenceRef[] => {
+    if (!item || typeof item !== "object") return []
+    const raw = item as Partial<EvidenceRef>
+    const type = ["source_page", "node", "gap", "edge", "thread", "wiki_excerpt"].includes(String(raw.type)) ? raw.type as EvidenceRef["type"] : "wiki_excerpt"
+    const refId = String(raw.refId || raw.path || raw.title || "")
+    if (!refId) return []
+    return [{
+      id: String(raw.id || `evidence-${shortId(refId)}-${index}`),
+      type,
+      refId,
+      title: raw.title ? String(raw.title) : undefined,
+      excerpt: raw.excerpt ? String(raw.excerpt).slice(0, 500) : undefined,
+      path: raw.path ? String(raw.path) : undefined,
+    }]
+  }).slice(0, 12)
+}
+
+function fieldStatus(hasLlm: boolean, valid = true): KnowledgeThread["summaryStatus"] {
+  if (!hasLlm) return "pending_llm"
+  return valid ? "llm_generated" : "needs_repair"
+}
+
+function parseCoreQuestionType(value: unknown, fallback: CoreQuestionType = "gap"): CoreQuestionType {
+  const allowed: CoreQuestionType[] = ["mechanism", "tradeoff", "evolution", "contradiction", "application", "gap"]
+  return allowed.includes(value as CoreQuestionType) ? value as CoreQuestionType : fallback
+}
+
+function parseGenerationMode(value: unknown, fallback: ThreadGenerationMode): ThreadGenerationMode {
+  return ["llm", "local_candidate", "repair"].includes(String(value)) ? value as ThreadGenerationMode : fallback
+}
+
+function parseValidationStatus(value: unknown, fallback: ThreadValidationStatus): ThreadValidationStatus {
+  return ["passed", "failed", "repaired"].includes(String(value)) ? value as ThreadValidationStatus : fallback
 }
 
 function relativeToProject(projectPath: string, path: string): string {
@@ -206,6 +252,88 @@ function focusedContextText(
   ].filter(Boolean).join("\n\n")
 }
 
+function evidenceRefsFromSeeds(projectPath: string, seeds: InspirationSeed[], limit = 4): EvidenceRef[] {
+  return seeds.slice(0, limit).map((seed, index) => ({
+    id: `evidence-${shortId(seed.title)}-${index}`,
+    type: "source_page",
+    refId: relativeToProject(projectPath, seed.path),
+    title: cleanTitle(seed.title),
+    excerpt: extractClaim(seed),
+    path: relativeToProject(projectPath, seed.path),
+  }))
+}
+
+function evidenceRefsFromNodes(nodes: KnowledgeThreadNode[], limit = 4): EvidenceRef[] {
+  return nodes.slice(0, limit).map((node, index) => ({
+    id: `evidence-${shortId(node.id)}-${index}`,
+    type: "node",
+    refId: node.id,
+    title: node.title,
+    excerpt: node.summary,
+    path: node.sourcePageIds[0],
+  }))
+}
+
+function buildMainlineFromThread(thread: KnowledgeThread, nodes: KnowledgeThreadNode[], gaps: KnowledgeThreadGap[]): ThreadMainlineStep[] {
+  const orderedNodes = [...nodes].sort((a, b) => b.importance - a.importance)
+  const base = orderedNodes.slice(0, 3)
+  const roles: ThreadMainlineRole[] = ["background", "core_concept", "key_question"]
+  const nodeSteps = base.map((node, index): ThreadMainlineStep => ({
+    id: `mainline-${shortId(thread.id)}-${index}`,
+    threadId: thread.id,
+    order: index + 1,
+    nodeId: node.id,
+    title: node.title,
+    role: roles[index] ?? "evidence",
+    summary: node.summary,
+    evidenceRefs: evidenceRefsFromNodes([node]),
+    dependsOnStepIds: index > 0 ? [`mainline-${shortId(thread.id)}-${index - 1}`] : undefined,
+  }))
+  const firstGap = gaps[0]
+  const gapStep: ThreadMainlineStep = {
+    id: `mainline-${shortId(thread.id)}-gap`,
+    threadId: thread.id,
+    order: nodeSteps.length + 1,
+    title: firstGap?.title ?? `${thread.name} 的关键缺口`,
+    role: "gap",
+    summary: firstGap?.description ?? thread.gaps[0] ?? thread.coreQuestion,
+    evidenceRefs: firstGap?.evidenceRefs?.length ? firstGap.evidenceRefs : evidenceRefsFromNodes(base),
+    dependsOnStepIds: nodeSteps.length > 0 ? [nodeSteps[nodeSteps.length - 1].id] : undefined,
+  }
+  const nextStep: ThreadMainlineStep = {
+    id: `mainline-${shortId(thread.id)}-next`,
+    threadId: thread.id,
+    order: nodeSteps.length + 2,
+    title: thread.nextDirections[0] ?? `推进「${thread.name}」的下一步`,
+    role: "next_direction",
+    summary: thread.nextDirections[0] ?? `围绕「${thread.name}」补齐证据、关系和可验证结论。`,
+    evidenceRefs: gapStep.evidenceRefs,
+    dependsOnStepIds: [gapStep.id],
+  }
+  return [...nodeSteps, gapStep, nextStep].slice(0, 8)
+}
+
+function buildNextDirectionsFromThread(thread: KnowledgeThread, nodes: KnowledgeThreadNode[], gaps: KnowledgeThreadGap[]): ThreadNextDirection[] {
+  const fallback = concreteDirectionsFromThread(thread, nodes, gaps)
+  const openGap = gaps.find((gap) => gap.status !== "resolved")
+  const primaryNode = nodes[0]
+  return fallback.slice(0, 4).map((direction, index): ThreadNextDirection => ({
+    id: `next-${shortId(thread.id)}-${index}`,
+    threadId: thread.id,
+    actionType: index === 0 && openGap ? "validate_claim" : index === 1 && primaryNode ? "connect_nodes" : "read_more",
+    title: direction.replace(/[。.]$/, "").slice(0, 80),
+    rationale: direction,
+    targetGapIds: openGap ? [openGap.id] : [],
+    targetNodeIds: primaryNode ? [primaryNode.id] : [],
+    targetPageIds: primaryNode?.sourcePageIds ?? thread.sourcePages.slice(0, 2),
+    expectedOutput: "形成可写回知识脉络的证据、关系或判断标准。",
+    priority: index === 0 ? "high" : "medium",
+    effort: index === 0 ? "medium" : "small",
+    validationSignal: "新增证据引用、关系边或缺口状态变化。",
+    evidenceRefs: openGap?.evidenceRefs?.length ? openGap.evidenceRefs : evidenceRefsFromNodes(nodes),
+  }))
+}
+
 function extractClaim(seed?: InspirationSeed): string {
   const snippet = seed?.snippet?.trim() ?? ""
   if (!snippet) return cleanTitle(seed?.title ?? "")
@@ -327,6 +455,46 @@ function nonGenericStrings(primary: string[], fallback: string[], limit = 12): s
   )
 }
 
+function parseMainlineRole(value: unknown, fallback: ThreadMainlineRole = "evidence"): ThreadMainlineRole {
+  const allowed: ThreadMainlineRole[] = ["background", "core_concept", "key_question", "method", "evidence", "case", "contradiction", "gap", "next_direction"]
+  return allowed.includes(value as ThreadMainlineRole) ? value as ThreadMainlineRole : fallback
+}
+
+function parseActionType(value: unknown, fallback: ThreadNextDirectionActionType = "read_more"): ThreadNextDirectionActionType {
+  const allowed: ThreadNextDirectionActionType[] = ["read_more", "ask_user", "web_research", "connect_nodes", "validate_claim", "compare_threads", "generate_idea", "update_schema"]
+  return allowed.includes(value as ThreadNextDirectionActionType) ? value as ThreadNextDirectionActionType : fallback
+}
+
+function parseGapType(value: unknown): KnowledgeThreadGap["gapType"] {
+  const allowed: KnowledgeThreadGap["gapType"][] = ["missing_evidence", "unclear_mechanism", "conflicting_views", "weak_connection", "missing_case", "missing_method", "outdated_information"]
+  return allowed.includes(value as KnowledgeThreadGap["gapType"]) ? value as KnowledgeThreadGap["gapType"] : "missing_evidence"
+}
+
+function parsePriority(value: unknown): "low" | "medium" | "high" {
+  return ["low", "medium", "high"].includes(String(value)) ? value as "low" | "medium" | "high" : "medium"
+}
+
+function parseEffort(value: unknown): "small" | "medium" | "large" {
+  return ["small", "medium", "large"].includes(String(value)) ? value as "small" | "medium" | "large" : "medium"
+}
+
+function parseRelationType(value: unknown): KnowledgeThreadRelation["type"] {
+  const allowed: KnowledgeThreadRelation["type"][] = ["overlaps_with", "depends_on", "contradicts", "evolves_to", "complements", "competes_with", "shares_gap", "inspires"]
+  return allowed.includes(value as KnowledgeThreadRelation["type"]) ? value as KnowledgeThreadRelation["type"] : "overlaps_with"
+}
+
+function completeLog(log: Omit<ThreadEvolutionLog, "changeReason" | "evidenceRefs" | "promptVersion" | "generationMode" | "validationStatus" | "validationMessages"> & Partial<ThreadEvolutionLog>): ThreadEvolutionLog {
+  return {
+    ...log,
+    changeReason: log.changeReason ?? log.summary,
+    evidenceRefs: log.evidenceRefs ?? [],
+    promptVersion: log.promptVersion ?? "knowledge-thread-v2",
+    generationMode: log.generationMode ?? "local_candidate",
+    validationStatus: log.validationStatus ?? "failed",
+    validationMessages: log.validationMessages ?? [],
+  }
+}
+
 function isGenericThread(thread: KnowledgeThread): boolean {
   const text = `${thread.name}\n${thread.summary}\n${thread.coreQuestion}`.toLowerCase()
   const genericPatterns = [
@@ -390,7 +558,14 @@ function buildThreadFromSeedGroup(
   projectPath: string,
   now: number,
   context?: UserThreadContext,
-): { thread: KnowledgeThread; nodes: KnowledgeThreadNode[]; edges: KnowledgeThreadEdge[]; gaps: KnowledgeThreadGap[] } {
+): {
+  thread: KnowledgeThread
+  nodes: KnowledgeThreadNode[]
+  edges: KnowledgeThreadEdge[]
+  gaps: KnowledgeThreadGap[]
+  mainlineSteps: ThreadMainlineStep[]
+  nextDirections: ThreadNextDirection[]
+} {
   const top = group[0]
   const titleTerms = seedTitles(group, 4)
   const name = titleTerms[0] || `专题 ${index + 1}`
@@ -400,11 +575,19 @@ function buildThreadFromSeedGroup(
   const concepts = titleTerms.slice(0, 6)
   const derivedGaps = concreteGapsFromSeeds(name, group)
   const derivedDirections = concreteDirectionsFromSeeds(name, group, context)
+  const evidenceRefs = evidenceRefsFromSeeds(projectPath, group)
+  const summaryDraft = deriveSummary(name, group)
   const thread: KnowledgeThread = {
     id: threadId,
     name,
-    summary: deriveSummary(name, group),
+    summaryDraft,
+    summary: summaryDraft,
+    summaryEvidenceRefs: evidenceRefs,
+    summaryStatus: "pending_llm",
     coreQuestion: deriveCoreQuestion(name, group),
+    coreQuestionType: "gap",
+    coreQuestionEvidenceRefs: evidenceRefs.slice(0, 2),
+    coreQuestionStatus: "pending_llm",
     status: group.length >= 6 ? "active" : "forming",
     rootTopics: titleTerms.slice(0, 5),
     keyConcepts: concepts,
@@ -416,6 +599,11 @@ function buildThreadFromSeedGroup(
     activityScore: Math.min(0.9, 0.45 + group.filter((seed) => (seed.modifiedAt ?? 0) > now - 7 * 24 * 60 * 60 * 1000).length * 0.08),
     gaps: derivedGaps,
     nextDirections: derivedDirections,
+    mainlineStepIds: [],
+    nextDirectionIds: [],
+    validationStatus: "failed",
+    validationMessages: ["LLM is required before this local candidate can be treated as a final knowledge thread."],
+    generationMode: "local_candidate",
     createdAt: previous?.createdAt ?? now,
     updatedAt: now,
   }
@@ -455,23 +643,46 @@ function buildThreadFromSeedGroup(
     threadId: thread.id,
     title: derivedGaps[0]?.replace(/[。.]$/, "") || `${thread.name} 的关联证据不足`,
     description: derivedGaps.slice(1).join("；") || `当前材料主要集中在「${thread.name}」，缺少可用于验证边界、反例或应用条件的关联页面。`,
+    gapType: "weak_connection" as const,
+    whyItMatters: `该缺口决定「${thread.name}」是否能形成可验证的主线，而不只是相邻页面集合。`,
+    missingEvidence: ["能够解释关键页面之间关系的证据、案例或反例。"],
     priority: "medium" as const,
     sourceNodeIds: nodes.slice(0, 4).map((node) => node.id),
+    sourcePageIds: thread.sourcePages.slice(0, 4),
+    evidenceRefs,
     status: "open" as const,
     createdAt: now,
     updatedAt: now,
   }]
-  return { thread, nodes, edges, gaps }
+  const mainlineSteps = buildMainlineFromThread(thread, nodes, gaps)
+  const nextDirections = buildNextDirectionsFromThread(thread, nodes, gaps)
+  thread.mainlineStepIds = mainlineSteps.map((step) => step.id)
+  thread.nextDirectionIds = nextDirections.map((direction) => direction.id)
+  return { thread, nodes, edges, gaps, mainlineSteps, nextDirections }
 }
 
 function remapThreadArtifacts(
-  result: { nodes: KnowledgeThreadNode[]; edges: KnowledgeThreadEdge[]; gaps: KnowledgeThreadGap[] },
+  result: {
+    nodes: KnowledgeThreadNode[]
+    edges: KnowledgeThreadEdge[]
+    gaps: KnowledgeThreadGap[]
+    mainlineSteps?: ThreadMainlineStep[]
+    nextDirections?: ThreadNextDirection[]
+  },
   threadId: string,
-): { nodes: KnowledgeThreadNode[]; edges: KnowledgeThreadEdge[]; gaps: KnowledgeThreadGap[] } {
+): {
+  nodes: KnowledgeThreadNode[]
+  edges: KnowledgeThreadEdge[]
+  gaps: KnowledgeThreadGap[]
+  mainlineSteps: ThreadMainlineStep[]
+  nextDirections: ThreadNextDirection[]
+} {
   return {
     nodes: result.nodes.map((node) => ({ ...node, threadId })),
     edges: result.edges.map((edge) => ({ ...edge, threadId })),
     gaps: result.gaps.map((gap) => ({ ...gap, threadId })),
+    mainlineSteps: (result.mainlineSteps ?? []).map((step) => ({ ...step, threadId })),
+    nextDirections: (result.nextDirections ?? []).map((direction) => ({ ...direction, threadId })),
   }
 }
 
@@ -518,7 +729,9 @@ function heuristicBundle(
         gaps: nonGenericStrings(refreshedGaps, targetThread.gaps, 8),
         nextDirections: nonGenericStrings(refreshedDirections, targetThread.nextDirections, 8),
       }
-      const log: ThreadEvolutionLog = {
+      const targetMainlineSteps = existing.mainlineSteps.filter((step) => step.threadId === targetThreadId)
+      const targetNextDirections = existing.nextDirections.filter((direction) => direction.threadId === targetThreadId)
+      const log = completeLog({
         id: id("thread-log"),
         triggerType: "manual_refresh",
         triggerRef: targetThreadId,
@@ -531,10 +744,16 @@ function heuristicBundle(
         resolvedGaps: [],
         nextTasks: bumped.nextDirections.slice(0, 3),
         createdAt: now,
-      }
+      })
       return {
         ...existing,
         threads: existing.threads.map((t) => (t.id === targetThreadId ? bumped : t)),
+        mainlineSteps: targetMainlineSteps.length > 0
+          ? existing.mainlineSteps
+          : [...existing.mainlineSteps, ...buildMainlineFromThread(bumped, targetNodes, targetGaps)],
+        nextDirections: targetNextDirections.length > 0
+          ? existing.nextDirections
+          : [...existing.nextDirections, ...buildNextDirectionsFromThread(bumped, targetNodes, targetGaps)],
         logs: [log, ...existing.logs].slice(0, 80),
       }
     }
@@ -549,8 +768,10 @@ function heuristicBundle(
       coherenceScore: Math.max(targetThread.coherenceScore, result.thread.coherenceScore),
       gaps: nonGenericStrings(result.thread.gaps, targetThread.gaps),
       nextDirections: nonGenericStrings(result.thread.nextDirections, targetThread.nextDirections),
+      mainlineStepIds: artifacts.mainlineSteps.map((step) => step.id),
+      nextDirectionIds: artifacts.nextDirections.map((direction) => direction.id),
     }
-    const log: ThreadEvolutionLog = {
+    const log = completeLog({
       id: id("thread-log"),
       triggerType: "manual_refresh",
       triggerRef: targetThreadId,
@@ -563,13 +784,15 @@ function heuristicBundle(
       resolvedGaps: [],
       nextTasks: iteratedThread.nextDirections.slice(0, 4),
       createdAt: now,
-    }
+    })
     return {
       ...existing,
       threads: existing.threads.map((t) => (t.id === targetThreadId ? iteratedThread : t)),
       nodes: [...existing.nodes.filter((n) => n.threadId !== targetThreadId), ...artifacts.nodes],
       edges: [...existing.edges.filter((e) => e.threadId !== targetThreadId), ...artifacts.edges],
       gaps: [...existing.gaps.filter((g) => g.threadId !== targetThreadId), ...artifacts.gaps],
+      mainlineSteps: [...existing.mainlineSteps.filter((step) => step.threadId !== targetThreadId), ...artifacts.mainlineSteps],
+      nextDirections: [...existing.nextDirections.filter((direction) => direction.threadId !== targetThreadId), ...artifacts.nextDirections],
       contexts: context ? [context, ...existing.contexts].slice(0, 100) : existing.contexts,
       logs: [log, ...existing.logs].slice(0, 80),
     }
@@ -585,8 +808,10 @@ function heuristicBundle(
   const nodes = results.flatMap((r) => r.nodes)
   const edges = results.flatMap((r) => r.edges)
   const newGaps = results.flatMap((r) => r.gaps)
+  const mainlineSteps = results.flatMap((r) => r.mainlineSteps)
+  const nextDirections = results.flatMap((r) => r.nextDirections)
   const affectedThreadIds = threads.map((t) => t.id)
-  const log: ThreadEvolutionLog = {
+  const log = completeLog({
     id: id("thread-log"),
     triggerType: input.triggerType === "user_context_added" ? "user_context_added" : input.triggerType === "new_source_ingested" ? "new_source_ingested" : "manual_refresh",
     triggerRef: context?.id ?? input.changedWikiPages?.join(", ") ?? "manual",
@@ -601,13 +826,16 @@ function heuristicBundle(
     resolvedGaps: [],
     nextTasks: threads.flatMap((thread) => thread.nextDirections).slice(0, 6),
     createdAt: now,
-  }
+  })
   return {
     ...existing,
     threads,
     nodes,
     edges,
     gaps: newGaps,
+    mainlineSteps,
+    nextDirections,
+    relations: existing.relations,
     contexts: context ? [context, ...existing.contexts].slice(0, 100) : existing.contexts,
     logs: [log, ...existing.logs].slice(0, 80),
   }
@@ -618,6 +846,10 @@ interface LlmThreadPayload {
   nodes?: Array<Partial<KnowledgeThreadNode>>
   edges?: Array<Partial<KnowledgeThreadEdge>>
   gaps?: Array<Partial<KnowledgeThreadGap>>
+  mainlineMap?: Array<Partial<ThreadMainlineStep>>
+  mainlineSteps?: Array<Partial<ThreadMainlineStep>>
+  nextDirections?: Array<Partial<ThreadNextDirection>>
+  relations?: Array<Partial<KnowledgeThreadRelation>>
   log?: Partial<ThreadEvolutionLog>
 }
 
@@ -635,13 +867,21 @@ function normalizePayload(
     const previous = existing.threads.find((item) => item.id === threadId)
     const summary = String(thread.summary || previous?.summary || "")
     const coreQuestion = String(thread.coreQuestion || previous?.coreQuestion || "")
+    const evidenceRefs = safeEvidenceRefs(thread.summaryEvidenceRefs, previous?.summaryEvidenceRefs ?? [])
+    const coreEvidenceRefs = safeEvidenceRefs(thread.coreQuestionEvidenceRefs, previous?.coreQuestionEvidenceRefs ?? evidenceRefs.slice(0, 2))
     const parsedGaps = safeArray(thread.gaps).filter((item) => !isGenericGuidance(item))
     const parsedDirections = safeArray(thread.nextDirections).filter((item) => !isGenericGuidance(item))
     return {
       id: threadId,
       name,
+      summaryDraft: thread.summaryDraft ? String(thread.summaryDraft) : previous?.summaryDraft,
       summary,
+      summaryEvidenceRefs: evidenceRefs,
+      summaryStatus: fieldStatus(true, evidenceRefs.length >= 2),
       coreQuestion,
+      coreQuestionType: parseCoreQuestionType(thread.coreQuestionType, previous?.coreQuestionType ?? "gap"),
+      coreQuestionEvidenceRefs: coreEvidenceRefs,
+      coreQuestionStatus: fieldStatus(true, coreEvidenceRefs.length >= 2),
       status: ["forming", "active", "mature", "stale", "archived"].includes(String(thread.status)) ? thread.status as KnowledgeThread["status"] : previous?.status ?? "forming",
       rootTopics: safeArray(thread.rootTopics),
       keyConcepts: safeArray(thread.keyConcepts),
@@ -653,6 +893,11 @@ function normalizePayload(
       activityScore: clamp01(thread.activityScore),
       gaps: parsedGaps.length > 0 ? parsedGaps : (previous?.gaps ?? []).filter((item) => !isGenericGuidance(item)),
       nextDirections: parsedDirections.length > 0 ? parsedDirections : (previous?.nextDirections ?? []).filter((item) => !isGenericGuidance(item)),
+      mainlineStepIds: safeArray(thread.mainlineStepIds),
+      nextDirectionIds: safeArray(thread.nextDirectionIds),
+      validationStatus: parseValidationStatus(thread.validationStatus, evidenceRefs.length >= 2 && coreEvidenceRefs.length >= 2 ? "passed" : "failed"),
+      validationMessages: safeArray(thread.validationMessages),
+      generationMode: parseGenerationMode(thread.generationMode, "llm"),
       createdAt: previous?.createdAt ?? now,
       updatedAt: now,
     }
@@ -745,9 +990,14 @@ function normalizePayload(
         threadId: targetThreadId,
         title,
         description,
-        priority: ["low", "medium", "high"].includes(String(gap.priority)) ? gap.priority as KnowledgeThreadGap["priority"] : "medium",
+        gapType: parseGapType(gap.gapType),
+        whyItMatters: String(gap.whyItMatters || description || title),
+        missingEvidence: safeArray(gap.missingEvidence),
+        priority: parsePriority(gap.priority),
         sourceNodeIds: safeArray(gap.sourceNodeIds).filter((nodeId) => validNodeIds.has(nodeId)),
-        status: ["open", "resolved", "watching"].includes(String(gap.status)) ? gap.status as KnowledgeThreadGap["status"] : "open",
+        sourcePageIds: safeArray(gap.sourcePageIds),
+        evidenceRefs: safeEvidenceRefs(gap.evidenceRefs),
+        status: ["open", "investigating", "resolved", "dismissed", "watching"].includes(String(gap.status)) ? gap.status as KnowledgeThreadGap["status"] : "open",
         createdAt: now,
         updatedAt: now,
       }]
@@ -768,8 +1018,15 @@ function normalizePayload(
         ? updatedThread.nextDirections
         : concreteDirectionsFromThread(updatedThread, threadNodes, threadGaps),
     }
+    const threadMainlineSteps = buildMainlineFromThread(updatedThread, threadNodes, threadGaps)
+    const threadNextDirections = buildNextDirectionsFromThread(updatedThread, threadNodes, threadGaps)
+    updatedThread = {
+      ...updatedThread,
+      mainlineStepIds: threadMainlineSteps.map((step) => step.id),
+      nextDirectionIds: threadNextDirections.map((direction) => direction.id),
+    }
     const mergedThreads = existing.threads.map((t) => (t.id === targetThreadId ? updatedThread : t))
-    const log: ThreadEvolutionLog = {
+    const log = completeLog({
       id: id("thread-log"),
       triggerType: "manual_refresh",
       triggerRef: targetThreadId,
@@ -781,13 +1038,21 @@ function normalizePayload(
       newGaps: generatedGaps.map((g) => g.id),
       resolvedGaps: safeArray(payload.log?.resolvedGaps),
       nextTasks: safeArray(payload.log?.nextTasks),
+      evidenceRefs: safeEvidenceRefs(payload.log?.evidenceRefs),
+      promptVersion: String(payload.log?.promptVersion || "knowledge-thread-v2"),
+      generationMode: parseGenerationMode(payload.log?.generationMode, "llm"),
+      validationStatus: parseValidationStatus(payload.log?.validationStatus, "passed"),
+      validationMessages: safeArray(payload.log?.validationMessages),
       createdAt: now,
-    }
+    })
     return {
       threads: mergedThreads,
       nodes: [...existing.nodes.filter((n) => n.threadId !== targetThreadId), ...threadNodes],
       edges: [...existing.edges.filter((e) => e.threadId !== targetThreadId), ...threadEdges],
       gaps: [...existing.gaps.filter((g) => g.threadId !== targetThreadId), ...threadGaps],
+      mainlineSteps: [...existing.mainlineSteps.filter((step) => step.threadId !== targetThreadId), ...threadMainlineSteps],
+      nextDirections: [...existing.nextDirections.filter((direction) => direction.threadId !== targetThreadId), ...threadNextDirections],
+      relations: existing.relations.filter((relation) => relation.sourceThreadId !== targetThreadId && relation.targetThreadId !== targetThreadId),
       contexts: context ? [context, ...existing.contexts].slice(0, 100) : existing.contexts,
       logs: [log, ...existing.logs].slice(0, 80),
     }
@@ -841,14 +1106,19 @@ function normalizePayload(
       threadId,
       title,
       description,
-      priority: ["low", "medium", "high"].includes(String(gap.priority)) ? gap.priority as KnowledgeThreadGap["priority"] : "medium",
+      gapType: parseGapType(gap.gapType),
+      whyItMatters: String(gap.whyItMatters || description || title),
+      missingEvidence: safeArray(gap.missingEvidence),
+      priority: parsePriority(gap.priority),
       sourceNodeIds: safeArray(gap.sourceNodeIds).filter((nodeId) => validNodeIds.has(nodeId)),
-      status: ["open", "resolved", "watching"].includes(String(gap.status)) ? gap.status as KnowledgeThreadGap["status"] : "open",
+      sourcePageIds: safeArray(gap.sourcePageIds),
+      evidenceRefs: safeEvidenceRefs(gap.evidenceRefs),
+      status: ["open", "investigating", "resolved", "dismissed", "watching"].includes(String(gap.status)) ? gap.status as KnowledgeThreadGap["status"] : "open",
       createdAt: now,
       updatedAt: now,
     }]
   })
-  const enrichedThreads = meaningfulThreads.map((thread) => {
+  const baseThreads = meaningfulThreads.map((thread) => {
     const threadNodes = nodes.filter((node) => node.threadId === thread.id)
     const threadGaps = gaps.filter((gap) => gap.threadId === thread.id)
     return {
@@ -857,7 +1127,94 @@ function normalizePayload(
       nextDirections: thread.nextDirections.length > 0 ? thread.nextDirections : concreteDirectionsFromThread(thread, threadNodes, threadGaps),
     }
   })
-  const log: ThreadEvolutionLog = {
+  const rawMainlineSteps = payload.mainlineMap ?? payload.mainlineSteps ?? []
+  const parsedMainlineSteps = rawMainlineSteps.slice(0, 80).flatMap((step, index): ThreadMainlineStep[] => {
+    const threadId = String(step.threadId || baseThreads[0]?.id || "")
+    if (!validThreadIds.has(threadId)) return []
+    const nodeId = step.nodeId ? String(step.nodeId) : undefined
+    if (nodeId && !validNodeIds.has(nodeId)) return []
+    const title = String(step.title || nodes.find((node) => node.id === nodeId)?.title || `主线步骤 ${index + 1}`)
+    const summary = String(step.summary || "")
+    if (isGenericGuidance(`${title}\n${summary}`)) return []
+    return [{
+      id: String(step.id || `mainline-${shortId(threadId)}-${index}`),
+      threadId,
+      order: Number.isFinite(Number(step.order)) ? Number(step.order) : index + 1,
+      nodeId,
+      title,
+      role: parseMainlineRole(step.role, index === 0 ? "background" : "evidence"),
+      summary,
+      evidenceRefs: safeEvidenceRefs(step.evidenceRefs),
+      dependsOnStepIds: safeArray(step.dependsOnStepIds),
+    }]
+  })
+  const mainlineSteps = parsedMainlineSteps.length > 0
+    ? parsedMainlineSteps
+    : baseThreads.flatMap((thread) =>
+        buildMainlineFromThread(
+          thread,
+          nodes.filter((node) => node.threadId === thread.id),
+          gaps.filter((gap) => gap.threadId === thread.id),
+        ),
+      )
+  const validGapIds = new Set(gaps.map((gap) => gap.id))
+  const rawNextDirections = payload.nextDirections ?? []
+  const parsedNextDirections = rawNextDirections.slice(0, 80).flatMap((direction, index): ThreadNextDirection[] => {
+    const threadId = String(direction.threadId || baseThreads[0]?.id || "")
+    if (!validThreadIds.has(threadId)) return []
+    const title = String(direction.title || `下一步 ${index + 1}`)
+    const rationale = String(direction.rationale || "")
+    const expectedOutput = String(direction.expectedOutput || "")
+    if (isGenericGuidance(`${title}\n${rationale}\n${expectedOutput}`)) return []
+    return [{
+      id: String(direction.id || `next-${shortId(threadId)}-${index}`),
+      threadId,
+      actionType: parseActionType(direction.actionType),
+      title,
+      rationale,
+      targetGapIds: safeArray(direction.targetGapIds).filter((gapId) => validGapIds.has(gapId)),
+      targetNodeIds: safeArray(direction.targetNodeIds).filter((nodeId) => validNodeIds.has(nodeId)),
+      targetPageIds: safeArray(direction.targetPageIds),
+      expectedOutput,
+      priority: parsePriority(direction.priority),
+      effort: parseEffort(direction.effort),
+      validationSignal: String(direction.validationSignal || expectedOutput || rationale),
+      evidenceRefs: safeEvidenceRefs(direction.evidenceRefs),
+    }]
+  })
+  const nextDirections = parsedNextDirections.length > 0
+    ? parsedNextDirections
+    : baseThreads.flatMap((thread) =>
+        buildNextDirectionsFromThread(
+          thread,
+          nodes.filter((node) => node.threadId === thread.id),
+          gaps.filter((gap) => gap.threadId === thread.id),
+        ),
+      )
+  const relations = (payload.relations ?? []).slice(0, 80).flatMap((relation, index): KnowledgeThreadRelation[] => {
+    const sourceThreadId = String(relation.sourceThreadId || "")
+    const targetThreadId = String(relation.targetThreadId || "")
+    if (!validThreadIds.has(sourceThreadId) || !validThreadIds.has(targetThreadId) || sourceThreadId === targetThreadId) return []
+    const reason = String(relation.reason || "")
+    if (!reason || isGenericGuidance(reason)) return []
+    return [{
+      id: String(relation.id || `thread-relation-${index}-${shortId(sourceThreadId)}-${shortId(targetThreadId)}`),
+      sourceThreadId,
+      targetThreadId,
+      type: parseRelationType(relation.type),
+      reason,
+      evidenceRefs: safeEvidenceRefs(relation.evidenceRefs),
+      confidence: clamp01(relation.confidence),
+      createdAt: now,
+      updatedAt: now,
+    }]
+  })
+  const enrichedThreads = baseThreads.map((thread) => ({
+    ...thread,
+    mainlineStepIds: mainlineSteps.filter((step) => step.threadId === thread.id).map((step) => step.id),
+    nextDirectionIds: nextDirections.filter((direction) => direction.threadId === thread.id).map((direction) => direction.id),
+  }))
+  const log = completeLog({
     id: id("thread-log"),
     triggerType: input.triggerType === "user_context_added" ? "user_context_added" : input.triggerType === "scheduled_evolution" ? "scheduled_evolution" : "manual_refresh",
     triggerRef: context?.id ?? input.changedWikiPages?.join(", ") ?? "manual",
@@ -869,13 +1226,21 @@ function normalizePayload(
     newGaps: safeArray(payload.log?.newGaps),
     resolvedGaps: safeArray(payload.log?.resolvedGaps),
     nextTasks: safeArray(payload.log?.nextTasks),
+    evidenceRefs: safeEvidenceRefs(payload.log?.evidenceRefs),
+    promptVersion: String(payload.log?.promptVersion || "knowledge-thread-v2"),
+    generationMode: parseGenerationMode(payload.log?.generationMode, "llm"),
+    validationStatus: parseValidationStatus(payload.log?.validationStatus, "passed"),
+    validationMessages: safeArray(payload.log?.validationMessages),
     createdAt: now,
-  }
+  })
   return {
     threads: enrichedThreads,
     nodes,
     edges,
     gaps,
+    mainlineSteps,
+    nextDirections,
+    relations,
     contexts: context ? [context, ...existing.contexts].slice(0, 100) : existing.contexts,
     logs: [log, ...existing.logs].slice(0, 80),
   }
@@ -935,15 +1300,18 @@ export async function runKnowledgeThreadEvolution(
         "Isolation rule: use ONLY the target thread, its existing nodes/gaps/logs, and the related wiki pages provided for this target. Do not import sections, nodes, source pages, or gaps from any other knowledge thread.",
         `Every returned node, edge, gap, and thread.sourcePages entry must belong to targetThreadId "${targetThread.id}". If evidence belongs to another thread, omit it.`,
         "CRITICAL — thread.summary: Write a unique, content-specific description that captures what THIS thread covers. It must be clearly different from other threads. Ground every sentence in the actual wiki content. Never use template phrases.",
-        "CRITICAL — thread.coreQuestion: Analyze this thread's knowledge AND its relationship with other threads (if any) to formulate a sharp, analytical research question. The question should probe contradictions, gaps, or unexplored connections between concepts.",
-        "CRITICAL — thread.gaps and thread.nextDirections: regenerate them from the actual target thread content, nodes, gaps, recent logs, and wiki excerpts. Each item must name at least one actual concept/page/node from the provided content and say what is missing or what to do next. Do not copy generic placeholders.",
+        "CRITICAL — thread.summaryEvidenceRefs and thread.coreQuestionEvidenceRefs: summary/coreQuestion must cite at least two real wiki pages, nodes, gaps, or excerpts from the input. If evidence is insufficient, set summaryStatus/coreQuestionStatus to needs_repair and explain in validationMessages.",
+        "CRITICAL — thread.coreQuestion: Analyze the target thread's concrete knowledge to formulate a sharp question derived from evidence. It must expose a contradiction, dependency, unresolved gap, mechanism, trade-off, or evolution path; return coreQuestionType.",
+        "CRITICAL — gaps: return structured gaps with gapType, whyItMatters, missingEvidence, sourceNodeIds/sourcePageIds, evidenceRefs, priority, and status. Each gap must say what is missing, which evidence exposes it, why it matters, and what would resolve it.",
+        "CRITICAL — nextDirections: return structured nextDirections with actionType, title, rationale, targetGapIds/targetNodeIds/targetPageIds, expectedOutput, priority, effort, validationSignal, and evidenceRefs. Each direction must bind to a real gap/node/page.",
+        "CRITICAL — mainlineMap: return an ordered storyline from background/core_concept/key_question through evidence/method/case to gap/next_direction. Each step must include role, title, summary, nodeId when relevant, and evidenceRefs.",
         "Use the candidate knowledge topics, graph communities, and key page excerpts to expand this thread with new nodes, edges, and gaps.",
         "Add nodes of various types (concept, method, question, claim, case, gap, idea). Each node.summary must be a unique, concrete description — never use placeholder text.",
         "Add edges with meaningful relationship types (depends_on, supports, contradicts, evolves_to, inspires, should_explore) and specific reasons.",
-        "Identify specific knowledge gaps with concrete titles and descriptions.",
+        "Before finalizing, self-check and repair the JSON: summary mentions concrete source knowledge; coreQuestion is evidence-derived; every gap explains missing/importance/evidence; every nextDirection maps to a gap/node/page; endpoints are valid.",
         "Forbidden gap/direction wording: generic phrases like '继续补充 Wiki 页面', '进一步梳理核心问题', '使用 LLM 深度迭代', '证据链与演进方向待细化'.",
         "Return a strict JSON object only. Do not return markdown or explanatory prose.",
-        "JSON keys: threads (array with ONE updated thread), nodes, edges, gaps, log. All scores must be 0-1.",
+        "JSON keys: threads (array with ONE updated thread), nodes, edges, gaps, mainlineMap, nextDirections, relations, log. All scores/confidence values must be 0-1.",
       ].join("\n")
     : [
         "You are a knowledge architect responsible for identifying knowledge threads inside a wiki.",
@@ -958,12 +1326,17 @@ export async function runKnowledgeThreadEvolution(
         "Rules:",
         "- thread.name: a concrete topic name grounded in the actual knowledge base.",
         "- thread.summary: unique per thread, content-specific, no templates.",
-        "- thread.coreQuestion: analytical, probes relationships between concepts, no templates.",
-        "- thread.gaps and thread.nextDirections: content-specific lists generated from each thread's real pages, nodes, and unresolved issues. Each item must mention concrete concepts/pages/nodes from the input.",
+        "- thread.summaryEvidenceRefs and thread.coreQuestionEvidenceRefs: cite real source pages, nodes, gaps, or wiki excerpts from the input. If evidence is insufficient, mark status needs_repair.",
+        "- thread.coreQuestion: evidence-derived, analytical, probes relationships between concepts, no templates; return coreQuestionType.",
+        "- gaps: structured objects with gapType, whyItMatters, missingEvidence, sourceNodeIds/sourcePageIds, evidenceRefs, priority, status.",
+        "- nextDirections: structured actionable tasks with actionType, rationale, targets, expectedOutput, effort, validationSignal, evidenceRefs.",
+        "- mainlineMap: ordered storyline steps with role, title, summary, nodeId when relevant, and evidenceRefs.",
+        "- relations: cross-thread relations with sourceThreadId, targetThreadId, type, reason, evidenceRefs, confidence.",
         "- node.summary: concrete description from wiki content, NOT placeholder text.",
         "- gap.title/description: specific and actionable.",
         "- Only use the given Wiki content, graph communities, and existing threads.",
-        "- Return a strict JSON object only (keys: threads, nodes, edges, gaps, log).",
+        "- Before finalizing, self-check and repair: summary is concrete, coreQuestion is a real evidence-derived question, gaps explain what/why/evidence, nextDirections map to gap/node/page, edge/relation endpoints exist.",
+        "- Return a strict JSON object only (keys: threads, nodes, edges, gaps, mainlineMap, nextDirections, relations, log).",
         "- All scores must be 0-1.",
         "- Never output: \"知识库主线\", \"专题 N\", template questions/descriptions.",
         "- Never output generic gap/direction phrases such as \"继续补充 Wiki 页面\", \"进一步梳理核心问题\", \"使用 LLM 深度迭代\", or \"证据链与演进方向待细化\".",

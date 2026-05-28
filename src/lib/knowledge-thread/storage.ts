@@ -7,7 +7,10 @@ import {
   type KnowledgeThreadEdge,
   type KnowledgeThreadGap,
   type KnowledgeThreadNode,
+  type KnowledgeThreadRelation,
   type KnowledgeThreadTrash,
+  type ThreadMainlineStep,
+  type ThreadNextDirection,
   type ThreadEvolutionLog,
   type TrashEntry,
   type UserThreadContext,
@@ -20,6 +23,9 @@ const FILES = {
   nodes: "thread-nodes.json",
   edges: "thread-edges.json",
   gaps: "thread-gaps.json",
+  mainlineSteps: "thread-mainline-map.json",
+  nextDirections: "thread-next-directions.json",
+  relations: "thread-relations.json",
   contexts: "thread-contexts.json",
   logs: "thread-evolution-logs.json",
   trash: "thread-trash.json",
@@ -54,11 +60,14 @@ export async function ensureKnowledgeThreadDir(projectPath: string): Promise<voi
 
 export async function loadKnowledgeThreadBundle(projectPath: string): Promise<KnowledgeThreadBundle> {
   await ensureKnowledgeThreadDir(projectPath)
-  const [threads, nodes, edges, gaps, contexts, logs] = await Promise.all([
+  const [threads, nodes, edges, gaps, mainlineSteps, nextDirections, relations, contexts, logs] = await Promise.all([
     readJsonArray<KnowledgeThread>(projectPath, "threads"),
     readJsonArray<KnowledgeThreadNode>(projectPath, "nodes"),
     readJsonArray<KnowledgeThreadEdge>(projectPath, "edges"),
     readJsonArray<KnowledgeThreadGap>(projectPath, "gaps"),
+    readJsonArray<ThreadMainlineStep>(projectPath, "mainlineSteps"),
+    readJsonArray<ThreadNextDirection>(projectPath, "nextDirections"),
+    readJsonArray<KnowledgeThreadRelation>(projectPath, "relations"),
     readJsonArray<UserThreadContext>(projectPath, "contexts"),
     readJsonArray<ThreadEvolutionLog>(projectPath, "logs"),
   ])
@@ -68,6 +77,9 @@ export async function loadKnowledgeThreadBundle(projectPath: string): Promise<Kn
     nodes,
     edges,
     gaps,
+    mainlineSteps,
+    nextDirections,
+    relations,
     contexts,
     logs,
   }
@@ -83,6 +95,9 @@ export async function saveKnowledgeThreadBundle(
     writeJsonArray(projectPath, "nodes", bundle.nodes),
     writeJsonArray(projectPath, "edges", bundle.edges),
     writeJsonArray(projectPath, "gaps", bundle.gaps),
+    writeJsonArray(projectPath, "mainlineSteps", bundle.mainlineSteps),
+    writeJsonArray(projectPath, "nextDirections", bundle.nextDirections),
+    writeJsonArray(projectPath, "relations", bundle.relations),
     writeJsonArray(projectPath, "contexts", bundle.contexts),
     writeJsonArray(projectPath, "logs", bundle.logs),
   ])
@@ -104,6 +119,13 @@ function removeThreadFromBundle(
   const nodeIds = new Set(threadNodes.map((n) => n.id))
   const threadGaps = bundle.gaps.filter((g) => g.threadId === threadId)
   const gapIds = new Set(threadGaps.map((g) => g.id))
+  const mainlineStepIds = new Set(bundle.mainlineSteps.filter((step) => step.threadId === threadId).map((step) => step.id))
+  const nextDirectionIds = new Set(bundle.nextDirections.filter((direction) => direction.threadId === threadId).map((direction) => direction.id))
+  const relationIds = new Set(
+    bundle.relations
+      .filter((relation) => relation.sourceThreadId === threadId || relation.targetThreadId === threadId)
+      .map((relation) => relation.id),
+  )
   const edgeIds = new Set(
     bundle.edges
       .filter((e) => e.threadId === threadId || nodeIds.has(e.sourceNodeId) || nodeIds.has(e.targetNodeId))
@@ -114,6 +136,9 @@ function removeThreadFromBundle(
     nodes: bundle.nodes.filter((n) => n.threadId !== threadId),
     edges: bundle.edges.filter((e) => e.threadId !== threadId && !nodeIds.has(e.sourceNodeId) && !nodeIds.has(e.targetNodeId)),
     gaps: bundle.gaps.filter((g) => g.threadId !== threadId),
+    mainlineSteps: bundle.mainlineSteps.filter((step) => step.threadId !== threadId),
+    nextDirections: bundle.nextDirections.filter((direction) => direction.threadId !== threadId),
+    relations: bundle.relations.filter((relation) => relation.sourceThreadId !== threadId && relation.targetThreadId !== threadId),
     contexts: bundle.contexts.filter((c) => c.targetId !== threadId && !nodeIds.has(c.targetId ?? "")),
     logs: bundle.logs.filter((l) =>
       !l.affectedThreadIds.includes(threadId) &&
@@ -121,7 +146,8 @@ function removeThreadFromBundle(
       !l.updatedNodes.some((id) => nodeIds.has(id)) &&
       !l.addedEdges.some((id) => edgeIds.has(id)) &&
       !l.newGaps.some((id) => gapIds.has(id)) &&
-      !l.resolvedGaps.some((id) => gapIds.has(id)),
+      !l.resolvedGaps.some((id) => gapIds.has(id)) &&
+      !l.nextTasks.some((id) => nextDirectionIds.has(id) || mainlineStepIds.has(id) || relationIds.has(id)),
     ),
   }
   return next
@@ -169,6 +195,9 @@ export async function restoreThreadFromTrash(
   bundle.nodes.push(...entry.nodes)
   bundle.edges.push(...entry.edges)
   bundle.gaps.push(...entry.gaps)
+  bundle.mainlineSteps.push(...(entry.mainlineSteps ?? []))
+  bundle.nextDirections.push(...(entry.nextDirections ?? []))
+  bundle.relations.push(...(entry.relations ?? []))
   await saveKnowledgeThreadBundle(projectPath, bundle)
   return bundle
 }
